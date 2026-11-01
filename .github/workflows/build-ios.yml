@@ -1,0 +1,59 @@
+name: Build iOS TrollStore IPA
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build TrollStore IPA
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.5'
+          channel: 'stable'
+          cache: true
+
+      - name: Install ldid
+        run: |
+          brew install ldid
+
+      - name: Build TrollStore IPA
+        run: |
+          bash tooling/build-ipa.sh
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DSH-Go-TrollStore
+          path: build/trollstore/DSH-Go-TrollStore.ipa
+          if-no-files-found: error
+
+      - name: Create Release
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name || 'v1.0.8-trollstore' }}
+          name: DSH Go for iOS (TrollStore) ${{ github.ref_name || 'v1.0.8' }}
+          body: |
+            ### DSH Go iOS 巨魔版 (TrollStore Edition)
+            - 适配 iOS 14.0+，支持 iOS 16.1.2 巨魔直装。
+            - 注入 TrollStore 专有 Entitlements（无沙盒、JIT 权限、后台保活）。
+            - 手机 Safari 直接下载 IPA，点击分享用 TrollStore 安装即可。
+          files: |
+            build/trollstore/DSH-Go-TrollStore.ipa
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
