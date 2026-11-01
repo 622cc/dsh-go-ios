@@ -28,14 +28,7 @@ fi
 echo "==> 获取 Flutter 依赖..."
 flutter pub get
 
-echo "==> 安装 CocoaPods 依赖..."
-cd ios
-# 确保最低支持 iOS 14.0
-sed -i '' 's/# platform :ios, .*/platform :ios, "14.0"/' Podfile || true
-pod install --repo-update
-cd ..
-
-echo "==> 开始编译 iOS Release (无代码签名)..."
+echo "==> 开始编译 iOS Release (Flutter 会自动生成 Podfile 并安装 Pods)..."
 flutter build ios --release --no-codesign
 
 BUILD_APP_PATH=$(find "$APP_DIR/build/ios" -name "Runner.app" -type d | head -n 1)
