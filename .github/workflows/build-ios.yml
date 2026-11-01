@@ -12,7 +12,7 @@ on:
 jobs:
   build-ios:
     name: Build TrollStore IPA
-    runs-on: macos-14
+    runs-on: macos-15
     permissions:
       contents: write
 
