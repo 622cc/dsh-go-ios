@@ -5,6 +5,7 @@ import 'package:dsh_client/dsh_client.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../l10n/l10n.dart';
+import '../remote/link_status.dart';
 import '../usage/usage_stats.dart';
 import 'attachments.dart';
 import 'chat_error_text.dart';
@@ -348,6 +349,7 @@ class ChatState {
     bool clearError = false,
     String? notice,
     bool clearNotice = false,
+    DshConnectionState? connection,
     ModelSelection? model,
     List<PendingPrompt>? pending,
     bool? autoApprove,
@@ -368,7 +370,7 @@ class ChatState {
     loadingOlder: loadingOlder ?? this.loadingOlder,
     error: clearError ? null : (error ?? this.error),
     notice: clearNotice ? null : (notice ?? this.notice),
-    connection: connection,
+    connection: connection ?? this.connection,
     model: model ?? this.model,
     pending: pending ?? this.pending,
     autoApprove: autoApprove ?? this.autoApprove,
