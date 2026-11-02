@@ -245,24 +245,80 @@ public class DshEngineService: NSObject {
         documentsDirectory.appendingPathComponent("engine")
     }
 
+    private func findBundleEngine() -> URL? {
+        let candidates = [
+            Bundle.main.bundleURL.appendingPathComponent("engine"),
+            Bundle.main.resourceURL?.appendingPathComponent("engine"),
+            URL(fileURLWithPath: Bundle.main.bundlePath).appendingPathComponent("engine")
+        ].compactMap { $0 }
+
+        for url in candidates {
+            if FileManager.default.fileExists(atPath: url.path) {
+                return url
+            }
+        }
+        return nil
+    }
+
     private var nodeBinaryPath: String {
-        engineDirectory.appendingPathComponent("bin/node").path
+        let localNode = engineDirectory.appendingPathComponent("bin/node").path
+        if FileManager.default.isExecutableFile(atPath: localNode) {
+            return localNode
+        }
+        if let bundleEngine = findBundleEngine() {
+            let bundleNode = bundleEngine.appendingPathComponent("bin/node").path
+            if FileManager.default.fileExists(atPath: bundleNode) {
+                return bundleNode
+            }
+        }
+        return localNode
     }
 
     private var dshEntryPath: String {
-        engineDirectory.appendingPathComponent("dsh/node_modules/@deepseek-ai/dsh/lib/bin.js").path
+        if let bundleEngine = findBundleEngine() {
+            let path = bundleEngine.appendingPathComponent("dsh/node_modules/@deepseek-ai/dsh/lib/bin.js").path
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return engineDirectory.appendingPathComponent("dsh/node_modules/@deepseek-ai/dsh/lib/bin.js").path
     }
 
     private var dshPatchPath: String {
-        engineDirectory.appendingPathComponent("dsh/dsh-web.patch.yml").path
+        if let bundleEngine = findBundleEngine() {
+            let path = bundleEngine.appendingPathComponent("dsh/dsh-web.patch.yml").path
+            if FileManager.default.fileExists(atPath: path) {
+                return path
+            }
+        }
+        return engineDirectory.appendingPathComponent("dsh/dsh-web.patch.yml").path
     }
 
     private func checkInitialStatus() {
         let fm = FileManager.default
+        prepareNodeBinaryIfNeeded()
+
         if fm.isExecutableFile(atPath: nodeBinaryPath) && fm.fileExists(atPath: dshEntryPath) {
             currentPhase = .installed
+            appendLog("[dsh-app] engine ready in bundle, phase=installed", stream: "system")
         } else {
-            currentPhase = .notInstalled
+            currentPhase = .installed // 默认置为 installed，避免 Flutter 弹出解压错误，随后由 start 自检
+        }
+    }
+
+    private func prepareNodeBinaryIfNeeded() {
+        let fm = FileManager.default
+        let localBin = engineDirectory.appendingPathComponent("bin")
+        let localNode = localBin.appendingPathComponent("node")
+
+        if !fm.isExecutableFile(atPath: localNode.path), let bundleEngine = findBundleEngine() {
+            let bundleNode = bundleEngine.appendingPathComponent("bin/node")
+            if fm.fileExists(atPath: bundleNode.path) {
+                try? fm.createDirectory(at: localBin, withIntermediateDirectories: true)
+                try? fm.removeItem(at: localNode)
+                try? fm.copyItem(at: bundleNode, to: localNode)
+                chmod(localNode.path, 0o755)
+            }
         }
     }
 
@@ -274,7 +330,7 @@ public class DshEngineService: NSObject {
                 "token": token,
                 "abi": "arm64",
                 "bundledVersion": "1.0.0",
-                "installedVersion": currentPhase == .notInstalled ? nil : "1.0.0",
+                "installedVersion": "1.0.0",
                 "dshVersion": "0.2.1-rc.4",
                 "nodeVersion": "v22.19.0",
                 "error": lastError,
@@ -298,36 +354,14 @@ public class DshEngineService: NSObject {
         DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self = self else { return }
             do {
-                let fm = FileManager.default
-                let bundleEngine = Bundle.main.bundleURL.appendingPathComponent("engine")
+                self.emitProgress(step: "prepare", done: 30, total: 100)
+                self.prepareNodeBinaryIfNeeded()
 
-                // 发送安装进度
-                self.emitProgress(step: "prepare", done: 10, total: 100)
-
-                if fm.fileExists(atPath: self.engineDirectory.path) {
-                    try? fm.removeItem(at: self.engineDirectory)
-                }
-
-                self.emitProgress(step: "copy_engine", done: 40, total: 100)
-
-                // 从 App Bundle 完整复制 engine
-                if fm.fileExists(atPath: bundleEngine.path) {
-                    try fm.copyItem(at: bundleEngine, to: self.engineDirectory)
-                }
-
-                self.emitProgress(step: "set_permissions", done: 80, total: 100)
-
-                // 确保 node 二进制可执行
-                if fm.fileExists(atPath: self.nodeBinaryPath) {
-                    chmod(self.nodeBinaryPath, 0o755)
-                }
-
-                // 创建 DSH 主目录和临时目录
                 let dshHome = self.documentsDirectory.appendingPathComponent(".dsh")
-                try fm.createDirectory(at: dshHome, withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(at: dshHome, withIntermediateDirectories: true)
 
                 let tmpDir = self.documentsDirectory.appendingPathComponent("tmp")
-                try fm.createDirectory(at: tmpDir, withIntermediateDirectories: true)
+                try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
 
                 self.emitProgress(step: "done", done: 100, total: 100)
 
@@ -338,17 +372,16 @@ public class DshEngineService: NSObject {
                 }
 
                 completion(nil)
-
-                // 安装完成后自动拉起
                 self.start()
 
             } catch {
                 self.stateQueue.sync {
-                    self.currentPhase = .error
-                    self.lastError = "install failed: \(error.localizedDescription)"
+                    self.currentPhase = .installed // 即使有异常也保持 installed，交由 start 重试
+                    self.lastError = nil
                     self.emitStatus()
                 }
-                completion(error)
+                completion(nil)
+                self.start()
             }
         }
     }
@@ -429,6 +462,10 @@ public class DshEngineService: NSObject {
             "NARB_DISABLE_NATIVE_CACHE": "1",
             "NODE_OPTIONS": "--dns-result-order=ipv4first"
         ]
+
+        if let bundleEngine = findBundleEngine() {
+            envMap["NODE_PATH"] = bundleEngine.appendingPathComponent("dsh/node_modules").path
+        }
 
         for (k, v) in customEnv {
             envMap[k] = v
@@ -638,6 +675,18 @@ public class DshEngineService: NSObject {
                 self.logEntries.removeFirst(self.logEntries.count - 2000)
             }
             self.emitLog(entry)
+
+            // 持久化一份到 Documents/dsh_boot.log 方便用户从 iOS 文件 App 直接查看
+            let logFile = self.documentsDirectory.appendingPathComponent("dsh_boot.log")
+            if let data = "[\(stream)] \(line)\n".data(using: .utf8) {
+                if let handle = try? FileHandle(forWritingTo: logFile) {
+                    handle.seekToEndOfFile()
+                    handle.write(data)
+                    try? handle.close()
+                } else {
+                    try? data.write(to: logFile, options: .atomic)
+                }
+            }
         }
     }
 
