@@ -26,10 +26,6 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: Install ldid
-        run: |
-          brew install ldid
-
       - name: Build TrollStore IPA
         run: |
           bash tooling/build-ipa.sh

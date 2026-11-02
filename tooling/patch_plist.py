@@ -13,6 +13,8 @@ with open(plist_path, 'rb') as f:
 
 # 追加/修正必要键值，保持原生键值完好
 data['CFBundleDisplayName'] = 'DSH Go'
+data['CFBundleSupportedPlatforms'] = ['iPhoneOS']
+data['MinimumOSVersion'] = '14.0'
 data['NSCameraUsageDescription'] = '用于拍摄照片并发送给 DeepSeek Harness 分析。'
 data['NSMicrophoneUsageDescription'] = '用于语音输入与 DeepSeek 对话。'
 data['NSPhotoLibraryUsageDescription'] = '用于选择相册图片发送给 DeepSeek Harness。'

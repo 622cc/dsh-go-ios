@@ -44,26 +44,26 @@ cp -R "$BUILD_APP_PATH" "$PAYLOAD_DIR/Runner.app"
 
 ENTITLEMENTS="$APP_DIR/ios/Entitlements.plist"
 
-if command -v ldid >/dev/null 2>&1; then
-  echo "==> [关键] 对所有 Frameworks 和 dylib 递归执行伪签名 (防止 dyld SIGKILL)..."
-  find "$PAYLOAD_DIR/Runner.app" -depth \( -name "*.framework" -o -name "*.dylib" \) | while read -r item; do
-    if [ -d "$item" ]; then
-      bin_name=$(basename "$item" .framework)
-      if [ -f "$item/$bin_name" ]; then
-        echo "  -> 签名 Framework 内部二进制: $item/$bin_name"
-        ldid -S "$item/$bin_name"
-      fi
-    elif [ -f "$item" ]; then
-      echo "  -> 签名 Dylib: $item"
-      ldid -S "$item"
-    fi
+echo "==> [核心修复] 使用 macOS 官方 codesign 对所有 Frameworks 执行规范签名..."
+if [ -d "$PAYLOAD_DIR/Runner.app/Frameworks" ]; then
+  find "$PAYLOAD_DIR/Runner.app/Frameworks" -type d -name "*.framework" | while read -r fw; do
+    echo "  -> codesign 签名 Framework: $(basename "$fw")"
+    codesign --force --sign - --timestamp=none "$fw"
   done
-
-  echo "==> 对主二进制 Runner 注入 Entitlements 并签名..."
-  ldid -S"$ENTITLEMENTS" "$PAYLOAD_DIR/Runner.app/Runner"
-  ldid -S"$ENTITLEMENTS" "$PAYLOAD_DIR/Runner.app"
-  echo "==> TrollStore 递归签名注入完成！"
+  find "$PAYLOAD_DIR/Runner.app/Frameworks" -type f -name "*.dylib" | while read -r dylib; do
+    echo "  -> codesign 签名 Dylib: $(basename "$dylib")"
+    codesign --force --sign - --timestamp=none "$dylib"
+  done
 fi
+
+echo "==> 使用 codesign 对主 App Bundle 注入 Entitlements 并生成完整 _CodeSignature..."
+codesign --force --sign - --entitlements "$ENTITLEMENTS" --timestamp=none "$PAYLOAD_DIR/Runner.app"
+
+echo "==> 验证签名完整性..."
+codesign --verify --deep --strict --verbose=2 "$PAYLOAD_DIR/Runner.app" || true
+
+echo "==> 检查 _CodeSignature 是否生成..."
+ls -la "$PAYLOAD_DIR/Runner.app/_CodeSignature"
 
 echo "==> 打包 IPA..."
 cd "$OUT_DIR"
