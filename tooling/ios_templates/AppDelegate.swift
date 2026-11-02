@@ -313,19 +313,6 @@ public class DshEngineService: NSObject {
                 // 从 App Bundle 完整复制 engine
                 if fm.fileExists(atPath: bundleEngine.path) {
                     try fm.copyItem(at: bundleEngine, to: self.engineDirectory)
-                } else {
-                    let archive = Bundle.main.bundleURL.appendingPathComponent("engine.tar.gz")
-                    if fm.fileExists(atPath: archive.path) {
-                        try fm.createDirectory(at: self.engineDirectory, withIntermediateDirectories: true)
-                        let tarCmd = "/usr/bin/tar"
-                        if fm.fileExists(atPath: tarCmd) {
-                            let task = Process()
-                            task.executableURL = URL(fileURLWithPath: tarCmd)
-                            task.arguments = ["-xzf", archive.path, "-C", self.engineDirectory.path]
-                            try task.run()
-                            task.waitUntilExit()
-                        }
-                    }
                 }
 
                 self.emitProgress(step: "set_permissions", done: 80, total: 100)
