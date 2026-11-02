@@ -167,13 +167,6 @@ class SettingsScreen extends ConsumerWidget {
           title: l10n.hubGroupCapabilities,
           children: [
             SettingsTile(
-              icon: AppIcons.phoneControl,
-              tint: SettingsHues.abilities,
-              spot: SettingsIndex.entry(SettingsPageId.phone),
-              value: text(phoneValue, color: phoneValue == l10n.hubValueOneStep ? colors.warning : null),
-              onTap: () => _push(context, const PhoneControlScreen()),
-            ),
-            SettingsTile(
               icon: AppIcons.webSearch,
               tint: SettingsHues.abilities,
               spot: SettingsIndex.entry(SettingsPageId.webSearch),
@@ -265,13 +258,6 @@ class SettingsScreen extends ConsumerWidget {
         SettingsSection(
           title: l10n.hubGroupHosts,
           children: [
-            SettingsTile(
-              icon: AppIcons.engine,
-              tint: SettingsHues.hosts,
-              spot: SettingsIndex.entry(SettingsPageId.engine),
-              value: StatusChip(tone: engine.tone, label: engine.label),
-              onTap: () => _push(context, const EngineScreen()),
-            ),
             SettingsTile(
               icon: AppIcons.remoteHosts,
               tint: SettingsHues.hosts,

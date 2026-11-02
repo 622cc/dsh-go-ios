@@ -163,9 +163,6 @@ class SessionsDrawer extends ConsumerWidget {
                         child: FittedBox(fit: BoxFit.scaleDown, child: BrandLockup(height: 19)),
                       ),
                     ),
-                    // 网页模式, quietly: the one solid element stays 新对话.
-                    const WebModeKey(),
-                    const SizedBox(width: 8),
                     NewChatButton(onTap: newChat),
                   ],
                 ),
