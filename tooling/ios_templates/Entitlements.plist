@@ -2,21 +2,10 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- TrollStore 核心权限：完全关闭应用沙盒 -->
+	<!-- TrollStore 官方标准支持：关闭沙盒与开启 JIT 调试执行 -->
 	<key>com.apple.private.security.no-sandbox</key>
 	<true/>
-	<key>com.apple.private.security.storage.AppDataContainers</key>
-	<true/>
-	<!-- 系统平台级进程权限 -->
-	<key>platform-application</key>
-	<true/>
-	<!-- 允许 JIT 动态代码执行与调试跟踪 -->
 	<key>get-task-allow</key>
-	<true/>
-	<key>dynamic-codesigning</key>
-	<true/>
-	<!-- 跳过动态库校验，允许挂载自由二进制 -->
-	<key>com.apple.private.skip-library-validation</key>
 	<true/>
 </dict>
 </plist>

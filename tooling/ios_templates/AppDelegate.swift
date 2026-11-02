@@ -8,14 +8,13 @@ import Flutter
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
   ) -> Bool {
     GeneratedPluginRegistrant.register(with: self)
+    let ok = super.application(application, didFinishLaunchingWithOptions: launchOptions)
 
-    guard let controller = window?.rootViewController as? FlutterViewController else {
-      return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    if let controller = window?.rootViewController as? FlutterViewController {
+      setupDshChannels(controller: controller)
     }
 
-    setupDshChannels(controller: controller)
-
-    return super.application(application, didFinishLaunchingWithOptions: launchOptions)
+    return ok
   }
 
   private func setupDshChannels(controller: FlutterViewController) {
@@ -32,7 +31,7 @@ import Flutter
       case "getRefreshRate":
         result(Float(UIScreen.main.maximumFramesPerSecond))
       default:
-        result(FlutterMethodNotImplemented)
+        result(nil)
       }
     }
 
@@ -121,7 +120,6 @@ import Flutter
     for channelName in fallbackChannels {
       let channel = FlutterMethodChannel(name: channelName, binaryMessenger: messenger)
       channel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
-        // 安全静默兜底
         result(nil)
       }
     }
