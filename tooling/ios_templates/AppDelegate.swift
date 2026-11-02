@@ -35,19 +35,46 @@ import Flutter
       }
     }
 
-    // 2. dsh/runtime
+    // 2. dsh/runtime & dsh/runtime/events
     let runtimeChannel = FlutterMethodChannel(name: "dsh/runtime", binaryMessenger: messenger)
     runtimeChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
+      let service = DshEngineService.shared
       switch call.method {
       case "getStatus":
-        result([
-          "status": "stopped",
-          "installed": true,
-          "running": false,
-          "platform": "ios_trollstore"
-        ])
+        result(service.status())
       case "install":
-        result(["success": true])
+        let dropKept = (call.arguments as? [String: Any])?["dropKept"] as? Bool ?? false
+        service.install(dropKept: dropKept) { error in
+          if let error = error {
+            result(FlutterError(code: "install_failed", message: error.localizedDescription, details: nil))
+          } else {
+            result(nil)
+          }
+        }
+      case "start":
+        let args = call.arguments as? [String: Any] ?? [:]
+        let env = (args["env"] as? [String: Any] ?? [:]).reduce(into: [String: String]()) { acc, pair in
+          acc[pair.key] = "\(pair.value)"
+        }
+        service.start(env: env)
+        result(nil)
+      case "stop":
+        service.stop()
+        result(nil)
+      case "reset":
+        service.reset { error in
+          if let error = error {
+            result(FlutterError(code: "reset_failed", message: error.localizedDescription, details: nil))
+          } else {
+            result(nil)
+          }
+        }
+      case "getLogs":
+        let lines = (call.arguments as? [String: Any])?["lines"] as? Int ?? 500
+        result(service.recentLogs(lines: lines))
+      case "getLogSnapshot":
+        let lines = (call.arguments as? [String: Any])?["lines"] as? Int ?? 300
+        result(service.logSnapshot(lines: lines))
       case "installManagedSkill":
         result([
           "result": "success",
@@ -56,10 +83,34 @@ import Flutter
         ])
       case "cancelManagedSkill":
         result(nil)
+      case "safePreflight":
+        result([])
+      case "moveAside":
+        result([])
+      case "clearFailure":
+        result(nil)
+      case "setAutoSafe":
+        result(nil)
+      case "setDirectEngine":
+        result(nil)
+      case "failureLog":
+        result([])
+      case "storageStatus", "requestStorage":
+        result([
+          "granted": true,
+          "permission": true,
+          "legacy": true,
+          "guestPath": "/sdcard"
+        ])
+      case "batteryExempt", "requestBatteryExempt":
+        result(true)
       default:
         result(nil)
       }
     }
+
+    let runtimeEventsChannel = FlutterEventChannel(name: "dsh/runtime/events", binaryMessenger: messenger)
+    runtimeEventsChannel.setStreamHandler(DshRuntimeStreamHandler())
 
     // 3. dsh/launch
     let launchChannel = FlutterMethodChannel(name: "dsh/launch", binaryMessenger: messenger)
@@ -123,5 +174,22 @@ import Flutter
         result(nil)
       }
     }
+  }
+}
+
+class DshRuntimeStreamHandler: NSObject, FlutterStreamHandler {
+  func onListen(withArguments arguments: Any?, eventSink events: @escaping FlutterEventSink) -> FlutterError? {
+    DshEngineService.shared.eventSink = events
+    // 刚订阅时主动推送一次当前最新状态
+    events([
+      "type": "status",
+      "status": DshEngineService.shared.status()
+    ])
+    return nil
+  }
+
+  func onCancel(withArguments arguments: Any?) -> FlutterError? {
+    DshEngineService.shared.eventSink = nil
+    return nil
   }
 }
