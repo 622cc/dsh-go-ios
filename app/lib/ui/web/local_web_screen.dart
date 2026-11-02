@@ -86,14 +86,9 @@ class _NotRunning extends ConsumerWidget {
       actions: [
         ?handle?.call(44),
         GlassIconButton(
-          icon: AppIcons.engine,
-          tooltip: context.l10n.webEngineStatus,
-          // As the home (网页模式) it stays underneath; as a page it gives way.
-          onPressed: () {
-            final route = MaterialPageRoute<void>(builder: (_) => const EngineScreen());
-            final navigator = Navigator.of(context);
-            unawaited(handle != null ? navigator.push(route) : navigator.pushReplacement(route));
-          },
+          icon: AppIcons.remoteHost,
+          tooltip: context.l10n.commonRemoteHost,
+          onPressed: () => unawaited(openLocalInstall(context)),
         ),
       ],
       slivers: [
@@ -112,7 +107,7 @@ class _NotRunning extends ConsumerWidget {
                   icon: failed
                       ? AppIcons.error
                       : missing
-                      ? AppIcons.thisPhone
+                      ? AppIcons.remoteHost
                       : AppIcons.webApp,
                   title: phase == RuntimePhase.installing
                       ? context.l10n.shellRuntimePreparing
@@ -121,20 +116,20 @@ class _NotRunning extends ConsumerWidget {
                       : failed
                       ? context.l10n.webEngineStartFailed
                       : missing
-                      ? context.l10n.localEnvNotInstalled
+                      ? context.l10n.commonRemoteHost
                       : context.l10n.webEngineNotRunning,
                   message: failed
                       ? (humanizeRuntimeError(state.status.error) ?? context.l10n.webEngineProblem)
                       : busy
                       ? context.l10n.webStartingSoon
                       : missing
-                      ? null
+                      ? context.l10n.remoteHostsIntro
                       : context.l10n.webStartToOpen,
                   action: missing
                       ? FilledButton(
                           style: FilledButton.styleFrom(minimumSize: const Size(160, 44)),
                           onPressed: () => unawaited(openLocalInstall(context)),
-                          child: Text(context.l10n.phoneEngineInstallRuntime),
+                          child: Text(context.l10n.commonRemoteHost),
                         )
                       : canStart
                       ? FilledButton(

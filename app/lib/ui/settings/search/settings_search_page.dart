@@ -75,7 +75,13 @@ String? unavailableReason(WidgetRef ref, SpotCondition? condition, L10n l10n) {
   return met ? null : condition!.label(l10n);
 }
 
-const _localOnlyPages = {SettingsPageId.phone, SettingsPageId.engine, SettingsPageId.background};
+const _localOnlyPages = {
+  SettingsPageId.phone,
+  SettingsPageId.engine,
+  SettingsPageId.background,
+  SettingsPageId.systemAccess,
+  SettingsPageId.pets,
+};
 
 class SettingsSearchPage extends ConsumerStatefulWidget {
   const SettingsSearchPage({super.key});

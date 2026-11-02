@@ -117,11 +117,9 @@ class SettingsScreen extends ConsumerWidget {
     final newApi = search == null
         ? null
         : search.valueOf(const FieldRef(WebSearchSettingsPage.webNs, ['searchProvider'])) == 'deepseek-search-api';
-    // 通用.
-    final exempt = ref.watch(batteryExemptProvider).value;
     // 主机.
     final ssh = ref.watch(hostsProvider.select((s) => s.ssh.length));
-    final hostName = host.isLocal ? l10n.commonThisPhone : ref.watch(hostNameProvider(host)) ?? l10n.commonRemoteHost;
+    final hostName = host.isLocal ? l10n.commonNotConnected : ref.watch(hostNameProvider(host)) ?? l10n.commonRemoteHost;
     // 帮助与关于.
     final update = ref.watch(appUpdateProvider);
     final newVersion = update.hasUpdate && !update.isSkipped;
@@ -214,7 +212,6 @@ class SettingsScreen extends ConsumerWidget {
               value: settings.foldCompletedTurns,
               onChanged: (v) => unawaited(notifier.setFoldCompletedTurns(v)),
             ),
-            const PetEntryTile(tint: SettingsHues.appearance),
           ],
         ),
         SettingsSection(
@@ -231,22 +228,6 @@ class SettingsScreen extends ConsumerWidget {
             const NotificationSettingsTile(tint: SettingsHues.general),
             const VoiceSettingsTile(tint: SettingsHues.general),
             const PerformanceSettingsTile(tint: SettingsHues.general),
-            SettingsTile(
-              icon: AppIcons.keepAlive,
-              tint: SettingsHues.general,
-              spot: SettingsIndex.entry(SettingsPageId.background),
-              value: text(
-                exempt == null ? null : (exempt ? l10n.hubValueAllowed : l10n.hubValueNeedsSetup),
-                color: exempt == false ? colors.warning : null,
-              ),
-              onTap: () => _push(context, const BackgroundGuidePage()),
-            ),
-            SettingsTile(
-              icon: AppIcons.systemAccess,
-              tint: SettingsHues.general,
-              spot: SettingsIndex.entry(SettingsPageId.systemAccess),
-              onTap: () => _push(context, const SystemAccessPage()),
-            ),
             SettingsTile(
               icon: AppIcons.privacy,
               tint: SettingsHues.general,
@@ -375,10 +356,11 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
     final balance = ref.watch(balanceProvider);
     final wallets = ref.watch(accountWalletBalanceProvider);
     final runtime = ref.watch(localRuntimeProvider);
-    final engine = EngineStatusView.of(runtime);
     final colors = DshColors.of(context);
     final active = ref.watch(activeHostProvider);
-    final remoteOnly = runtime.status.runtimeMissing && !active.isLocal;
+    final remoteOnly = runtime.status.runtimeMissing;
+    final link = watchHostStatus(ref, active);
+    final activeName = ref.watch(hostNameProvider(active)) ?? l10n.commonRemoteHost;
 
     // The account's wallets when signed in; otherwise the key's balance.
     final money = account.signedIn && wallets != null ? balanceFromAccount(wallets) : balance.balance;
@@ -406,10 +388,9 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
         title = l10n.hubSettingsAccount;
         subtitle = l10n.hubSettingsSigningIn;
       case _ when remoteOnly:
-        final link = HostStatusView.ofLink(ref.watch(hostLinkStatusProvider(active)).value ?? HostLinkStatus.idle);
         leading = OverviewGlyph(hostKindIcon(active.kind), tint: hostKindTint(active.kind));
-        title = ref.watch(hostNameProvider(active)) ?? l10n.commonRemoteHost;
-        subtitle = [l10n.commonRemoteHost, link.label].join(' · ');
+        title = activeName;
+        subtitle = active.isLocal ? l10n.remoteHostsIntro : [l10n.commonRemoteHost, link.label].join(' · ');
         warn = link.tone == StatusTone.error || link.tone == StatusTone.warn;
         hostLink = link.label;
       case _ when settings.hasApiKey:
@@ -432,8 +413,7 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
         title = l10n.hubSettingsSignInAccount;
         subtitle = l10n.hubSettingsOrApiKey;
     }
-    final dsh = runtime.status.dshVersion;
-    // The card is 账号's way in (its title is whoever is signed in).
+    // The card is 账号's way in (or 远程主机 in remote-only mode).
     return SpotAnchor(
       spot: SettingsIndex.entry(SettingsPageId.account),
       child: OverviewCard(
@@ -451,11 +431,13 @@ class _SettingsOverviewState extends ConsumerState<SettingsOverview> {
             ? l10n.hubSettingsHostSemantics(title, hostLink)
             : l10n.hubSettingsAccountSemantics(title, subtitle),
         onTap: () => _push(hostLink != null ? const RemoteScreen() : const AccountPage()),
-        footer: OverviewFooter(
-          tone: engine.tone,
-          text: [l10n.hubSettingsEngine, engine.label, if (dsh != null) 'DSH $dsh'].join(' · '),
-        ),
-        onFooterTap: () => _push(const EngineScreen()),
+        footer: hostLink != null
+            ? null
+            : OverviewFooter(
+                tone: link.tone,
+                text: [activeName, link.label].join(' · '),
+              ),
+        onFooterTap: hostLink != null ? null : () => _push(const RemoteScreen()),
       ),
     );
   }

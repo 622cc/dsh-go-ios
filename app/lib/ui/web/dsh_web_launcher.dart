@@ -44,7 +44,7 @@ final dshWebAccessProvider = Provider.autoDispose<DshWebAccess>((ref) {
   final host = ref.watch(activeHostProvider);
   switch (host.kind) {
     case HostKind.local:
-      return const LocalDshWeb();
+      return NoDshWeb(appL10n.remoteHostsIntro);
     case HostKind.relay:
       return NoDshWeb(appL10n.webRelayUnavailable);
     case HostKind.ssh:

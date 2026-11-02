@@ -239,7 +239,7 @@ final hostLinkStatusProvider = StreamProvider.autoDispose.family<HostLinkStatus,
 /// Display name of a host as currently known.
 final hostNameProvider = Provider.autoDispose.family<String?, HostRef>((ref, host) {
   return switch (host.kind) {
-    HostKind.local => appL10n.commonThisPhone,
+    HostKind.local => appL10n.commonRemoteHost,
     HostKind.ssh => ref.watch(hostsProvider.select((s) => s.sshById(host.id)?.name)),
     HostKind.relay => ref.watch(relayAccountProvider.select((a) => a.value?.hostById(host.id)?.name)) ?? host.name,
   };

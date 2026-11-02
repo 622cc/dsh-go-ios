@@ -6,6 +6,7 @@ import '../../state/connection_state.dart';
 import '../../state/hosts_state.dart';
 import '../../state/sessions_state.dart';
 import '../common/feature_tile.dart';
+import '../onboarding/local_install.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import 'feature_format.dart';
@@ -60,9 +61,10 @@ class FeatureOffline extends ConsumerWidget {
     if (connection.hasError) {
       if (host.isLocal) {
         return FeatureMessage(
-          icon: AppIcons.error,
-          title: l10n.commonEngineUnreachable,
-          action: (l10n.commonRetry, () => ref.invalidate(localConnectionProvider)),
+          icon: AppIcons.remoteHost,
+          title: l10n.commonNotConnected,
+          body: l10n.remoteHostsIntro,
+          action: (l10n.commonRemoteHost, () => openLocalInstall(context)),
         );
       }
       final status = ref.watch(hostLinkStatusProvider(host)).value ?? HostLinkStatus.idle;
@@ -80,7 +82,12 @@ class FeatureOffline extends ConsumerWidget {
           ? const QuietSpinner()
           : QuietSpinner(label: l10n.featuresHostConnecting(name ?? l10n.commonRemoteHost));
     }
-    return FeatureMessage(icon: AppIcons.offline, title: l10n.commonEngineUnreachable);
+    return FeatureMessage(
+      icon: AppIcons.remoteHost,
+      title: l10n.commonNotConnected,
+      body: l10n.remoteHostsIntro,
+      action: (l10n.commonRemoteHost, () => openLocalInstall(context)),
+    );
   }
 }
 

@@ -18,6 +18,7 @@ import '../engine_settings/schema_form.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
+import '../web/dsh_web_launcher.dart';
 import '../web/local_web_screen.dart';
 import 'settings_widgets.dart';
 
@@ -77,7 +78,7 @@ class InterfacePage extends ConsumerWidget {
               // In 网页模式 the web app is the home underneath.
               onTap: () => mode == UiMode.web
                   ? Navigator.of(context, rootNavigator: true).popUntil((route) => route.isFirst)
-                  : Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const LocalWebScreen())),
+                  : openDshWeb(context, ref),
             ),
             SettingsSwitchTile(
               spot: Spots.webPhoneLayout,

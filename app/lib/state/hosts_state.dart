@@ -73,9 +73,9 @@ class HostRef {
   String toString() => 'HostRef(${kind.name}:$id)';
 }
 
-/// Chat-header label for a connection: "本机", "电脑 · SSH", "家里的 Mac · 远程".
+/// Chat-header label for a connection: "远程主机", "电脑 · SSH", "家里的 Mac · 远程".
 String hostLabel(HostKind kind, String? name) => switch (kind) {
-  HostKind.local => appL10n.commonThisPhone,
+  HostKind.local => appL10n.commonRemoteHost,
   HostKind.ssh => '${_short(name ?? appL10n.stateSshHost)} · SSH',
   HostKind.relay => appL10n.stateHostRemoteLabel(_short(name ?? appL10n.commonRemoteHost)),
 };
