@@ -15,6 +15,7 @@ import '../../state/engine_control.dart';
 import '../../state/hosts_state.dart';
 import '../../state/onboarding_state.dart';
 import '../../state/settings_state.dart';
+import '../remote/remote_screen.dart';
 import '../shell/page_frame.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
@@ -22,9 +23,9 @@ import 'connect_page.dart';
 import 'onboarding_scaffold.dart';
 import 'runtime_setup_page.dart';
 
-/// Opens the install page over whatever is showing.
+/// Opens the remote host page directly in iOS remote-only edition.
 Future<void> openLocalInstall(BuildContext context, {bool useWhenDone = false}) =>
-    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => LocalInstallPage(useWhenDone: useWhenDone)));
+    Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const RemoteScreen()));
 
 /// What installing costs and one 「安装」; then the same progress as first
 /// run. Once installed the engine starts, and a phone with no model yet goes

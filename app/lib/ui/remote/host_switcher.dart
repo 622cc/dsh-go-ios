@@ -4,21 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
-import '../../runtime/local_footprint.dart';
-import '../../runtime/runtime_state.dart';
 import '../../state/connection_state.dart';
 import '../../state/hosts_state.dart';
 import '../common/app_sheet.dart';
 import '../common/sheet_title_bar.dart';
 import '../common/status_chip.dart';
-import '../onboarding/local_install.dart';
 import '../settings/settings_widgets.dart';
 import '../theme/app_icons.dart';
 import '../theme/theme.dart';
 import 'host_key_dialog.dart';
 import 'host_status.dart';
 
-/// Drawer-header chip: `● 本机 · 运行中 ⌄` / `● 电脑 · 已连接 ⌄`. Opens the
+/// Drawer-header chip: `● 远程主机 · 未连接 ⌄` / `● 电脑 · 已连接 ⌄`. Opens the
 /// host sheet.
 class HostChip extends ConsumerWidget {
   const HostChip({super.key, required this.onTap});
@@ -31,7 +28,7 @@ class HostChip extends ConsumerWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final host = ref.watch(activeHostProvider);
-    final name = ref.watch(hostNameProvider(host)) ?? (host.isLocal ? l10n.commonThisPhone : l10n.commonRemoteHost);
+    final name = ref.watch(hostNameProvider(host)) ?? l10n.commonRemoteHost;
     final view = watchHostStatus(ref, host);
     return Semantics(
       button: true,
@@ -96,15 +93,6 @@ class HostSheet extends ConsumerWidget {
       if (ok && navigator.mounted) navigator.pop();
     }
 
-    // 本机 without its runtime: the row installs it, and switches to it once
-    // installed (leaving the install page keeps the current host).
-    final localMissing = ref.watch(localRuntimeProvider.select((s) => s.status.runtimeMissing));
-    void installLocal() {
-      final navigator = Navigator.of(context);
-      navigator.pop();
-      unawaited(navigator.push(MaterialPageRoute<void>(builder: (_) => const LocalInstallPage(useWhenDone: true))));
-    }
-
     return SafeArea(
       top: false,
       child: ConstrainedBox(
@@ -115,37 +103,31 @@ class HostSheet extends ConsumerWidget {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SheetTitleBar(l10n.remoteSwitchHost),
-              SheetGroup(
-                margin: const EdgeInsets.fromLTRB(SheetTitleBar.inset, 0, SheetTitleBar.inset, 12),
-                children: [
-                  _HostRow(
-                    host: HostRef.local,
-                    title: l10n.commonThisPhone,
-                    subtitle: l10n.remoteThisPhoneDsh,
-                    active: active.isLocal,
-                    onTap: localMissing ? installLocal : () => pick(HostRef.local),
-                  ),
-                  for (final h in ssh)
-                    _HostRow(
-                      host: HostRef.ssh(h.id),
-                      title: h.name,
-                      subtitle: 'SSH · ${h.address}',
-                      active: active == HostRef.ssh(h.id),
-                      onTap: () => pick(HostRef.ssh(h.id)),
-                    ),
-                  for (final h in relayHosts)
-                    _HostRow(
-                      host: HostRef.relay(h.id, name: h.name),
-                      title: h.name,
-                      subtitle: h.platform == null
-                          ? l10n.remoteRemoteLabel
-                          : l10n.remoteRemotePlatform(RelayHost.platformLabel(h.platform!)),
-                      active: active == HostRef.relay(h.id),
-                      relay: h,
-                      onTap: () => pick(HostRef.relay(h.id, name: h.name)),
-                    ),
-                ],
-              ),
+              if (ssh.isNotEmpty || relayHosts.isNotEmpty)
+                SheetGroup(
+                  margin: const EdgeInsets.fromLTRB(SheetTitleBar.inset, 0, SheetTitleBar.inset, 12),
+                  children: [
+                    for (final h in ssh)
+                      _HostRow(
+                        host: HostRef.ssh(h.id),
+                        title: h.name,
+                        subtitle: 'SSH · ${h.address}',
+                        active: active == HostRef.ssh(h.id),
+                        onTap: () => pick(HostRef.ssh(h.id)),
+                      ),
+                    for (final h in relayHosts)
+                      _HostRow(
+                        host: HostRef.relay(h.id, name: h.name),
+                        title: h.name,
+                        subtitle: h.platform == null
+                            ? l10n.remoteRemoteLabel
+                            : l10n.remoteRemotePlatform(RelayHost.platformLabel(h.platform!)),
+                        active: active == HostRef.relay(h.id),
+                        relay: h,
+                        onTap: () => pick(HostRef.relay(h.id, name: h.name)),
+                      ),
+                  ],
+                ),
               if (relayHosts.length > 1)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(SheetTitleBar.inset + 8, 0, SheetTitleBar.inset + 8, 12),

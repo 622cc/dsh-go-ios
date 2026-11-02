@@ -1,4 +1,5 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Where remote-access secrets live: SSH passwords and private keys, relay
 /// device credentials. Never SharedPreferences.
@@ -11,23 +12,62 @@ abstract class SecretStore {
   Future<void> delete(String key);
 }
 
-/// Android Keystore-backed storage (flutter_secure_storage).
+/// Storage backed by SharedPreferences on iOS TrollStore (where Ad-Hoc signing
+/// lacks Apple Team ID Keychain entitlements) with FlutterSecureStorage fallback.
 class SecureSecretStore implements SecretStore {
   SecureSecretStore([FlutterSecureStorage? storage]) : _storage = storage ?? const FlutterSecureStorage();
 
   final FlutterSecureStorage _storage;
+  final Map<String, String> _mem = {};
 
   /// Every key is namespaced so remote secrets never collide with app settings.
   static String _k(String key) => 'remote.$key';
+  static String _pk(String key) => 'trollstore.secret.remote.$key';
 
   @override
-  Future<String?> read(String key) => _storage.read(key: _k(key));
+  Future<String?> read(String key) async {
+    final k = _k(key);
+    if (_mem.containsKey(k)) return _mem[k];
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final val = prefs.getString(_pk(key));
+      if (val != null) {
+        _mem[k] = val;
+        return val;
+      }
+    } catch (_) {}
+    try {
+      return await _storage.read(key: k);
+    } catch (_) {
+      return null;
+    }
+  }
 
   @override
-  Future<void> write(String key, String value) => _storage.write(key: _k(key), value: value);
+  Future<void> write(String key, String value) async {
+    final k = _k(key);
+    _mem[k] = value;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(_pk(key), value);
+    } catch (_) {}
+    try {
+      await _storage.write(key: k, value: value);
+    } catch (_) {}
+  }
 
   @override
-  Future<void> delete(String key) => _storage.delete(key: _k(key));
+  Future<void> delete(String key) async {
+    final k = _k(key);
+    _mem.remove(k);
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_pk(key));
+    } catch (_) {}
+    try {
+      await _storage.delete(key: k);
+    } catch (_) {}
+  }
 }
 
 /// In-memory store for tests and previews.

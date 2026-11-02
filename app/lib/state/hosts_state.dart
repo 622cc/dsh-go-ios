@@ -161,6 +161,9 @@ class HostsController extends Notifier<HostsState> {
       hosts.add(config);
     }
     await _persist(hosts);
+    if (ref.mounted && ref.read(activeHostProvider).isLocal) {
+      ref.read(activeHostProvider.notifier).select(HostRef.ssh(config.id));
+    }
   }
 
   Future<void> _writeSecrets(SshHostConfig config, SshSecrets secrets) async {
@@ -279,7 +282,14 @@ class ActiveHostController extends Notifier<HostRef> {
   Future<void> _restore() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final restored = HostRef.decode(prefs.getString(prefsKey));
+      var restored = HostRef.decode(prefs.getString(prefsKey));
+      if (restored.isLocal) {
+        await ref.read(hostsProvider.notifier).ready;
+        final sshHosts = ref.read(hostsProvider).ssh;
+        if (sshHosts.isNotEmpty) {
+          restored = HostRef.ssh(sshHosts.first.id);
+        }
+      }
       final autoConnect = prefs.getBool(RemoteAutoConnectController.prefsKey) ?? true;
       if (!_touched && ref.mounted && autoConnect) state = restored;
     } catch (_) {

@@ -1303,8 +1303,8 @@ class _ChatScreenState extends ConsumerState<ChatScreen> with WidgetsBindingObse
         : null;
     final idle = switch (localIdle) {
       RuntimePhase.notInstalled => ChatIdleAction(
-        message: l10n.localEnvNotInstalled,
-        label: l10n.phoneEngineInstallRuntime,
+        message: l10n.remoteHostsIntro,
+        label: l10n.commonRemoteHost,
         onTap: () => unawaited(openLocalInstall(context)),
       ),
       RuntimePhase.installed => ChatIdleAction(

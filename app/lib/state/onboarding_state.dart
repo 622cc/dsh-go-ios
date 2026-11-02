@@ -18,9 +18,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 class OnboardingPrefs {
   const OnboardingPrefs({
     this.loaded = false,
-    this.welcomeSeen = false,
-    this.keySkipped = false,
-    this.localDeclined = false,
+    this.welcomeSeen = true,
+    this.keySkipped = true,
+    this.localDeclined = true,
     this.setupStep,
   });
 
@@ -72,7 +72,7 @@ class OnboardingPrefsController extends Notifier<OnboardingPrefs> {
   @override
   OnboardingPrefs build() {
     _load();
-    return const OnboardingPrefs();
+    return const OnboardingPrefs(loaded: true, welcomeSeen: true, keySkipped: true, localDeclined: true);
   }
 
   Future<void> _load() async {
@@ -81,14 +81,14 @@ class OnboardingPrefsController extends Notifier<OnboardingPrefs> {
       if (!ref.mounted) return;
       state = OnboardingPrefs(
         loaded: true,
-        welcomeSeen: prefs.getBool(_welcomeKey) ?? false,
-        keySkipped: prefs.getBool(_skippedKey) ?? false,
-        localDeclined: prefs.getBool(_declinedKey) ?? false,
-        setupStep: SetupStep.parse(prefs.getString(_setupStepKey)),
+        welcomeSeen: prefs.getBool(_welcomeKey) ?? true,
+        keySkipped: prefs.getBool(_skippedKey) ?? true,
+        localDeclined: true,
+        setupStep: null,
       );
     } catch (_) {
       // Preferences unavailable: behave like a fresh install rather than hang the gate.
-      if (ref.mounted) state = const OnboardingPrefs(loaded: true);
+      if (ref.mounted) state = const OnboardingPrefs(loaded: true, welcomeSeen: true, keySkipped: true, localDeclined: true);
     }
   }
 

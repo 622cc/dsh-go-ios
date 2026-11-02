@@ -867,9 +867,10 @@ class _EmptyState extends ConsumerWidget {
       ),
       RuntimePhase.notInstalled when status.runtimeMissing => EmptyView(
         compact: true,
-        icon: AppIcons.thisPhone,
-        title: l10n.localEnvNotInstalled,
-        actionLabel: l10n.phoneEngineInstallRuntime,
+        icon: AppIcons.remoteHost,
+        title: l10n.commonRemoteHost,
+        message: l10n.remoteHostsIntro,
+        actionLabel: l10n.commonRemoteHost,
         onAction: () => unawaited(openLocalInstall(context)),
       ),
       _ => EmptyView(
