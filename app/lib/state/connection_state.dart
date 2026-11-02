@@ -309,18 +309,19 @@ class RemoteConnectionController extends AsyncNotifier<HostConnection?> {
       unawaited(clients.cancel());
       unawaited(statuses.cancel());
     });
-    final client = await link.open();
-    if (!ref.mounted) return null;
     // Sync DeepSeek API key saved in the app to the active remote engine.
     ref.listen(settingsProvider.select((s) => s.apiKey), (prev, next) {
       if (next == prev) return;
-      final activeClient = link.currentClient ?? client;
+      final activeClient = link.currentClient;
+      if (activeClient == null) return;
       if (next.isNotEmpty) {
         unawaited(activeClient.setProviderKey(next).catchError((_) {}));
       } else if (prev != null && prev.isNotEmpty) {
         unawaited(activeClient.clearProviderKey().catchError((_) {}));
       }
     });
+    final client = await link.open();
+    if (!ref.mounted) return null;
     final apiKey = ref.read(settingsProvider).apiKey;
     if (apiKey.isNotEmpty) {
       unawaited(client.setProviderKey(apiKey).catchError((_) {}));

@@ -21,6 +21,9 @@ Stream<void> networkKicks() {
           final previous = last;
           last = results;
           if (previous == null) return;
+          final prevSet = previous.toSet();
+          final nextSet = results.toSet();
+          if (prevSet.length == nextSet.length && prevSet.containsAll(nextSet)) return;
           // Coming back online, or switching networks: either way sockets that
           // were bound to the old interface are dead.
           if (!results.contains(ConnectivityResult.none)) controller.add(null);

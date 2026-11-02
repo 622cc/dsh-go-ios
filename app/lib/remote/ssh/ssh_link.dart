@@ -68,9 +68,9 @@ class SshHostLink implements HostLink {
     Stream<void>? kicks,
     Backoff? backoff,
     this.remoteEnvironment = const {},
-    this.keepAliveInterval = const Duration(seconds: 15),
-    this.keepAliveTimeout = const Duration(seconds: 10),
-    this.tunnelProbeTimeout = const Duration(seconds: 10),
+    this.keepAliveInterval = const Duration(seconds: 25),
+    this.keepAliveTimeout = const Duration(seconds: 15),
+    this.tunnelProbeTimeout = const Duration(seconds: 15),
     this.retryFirstOpen = true,
   }) : _transportFactory = transportFactory ?? DartSshTransport.connect,
        _connectClient = connectClient ?? _defaultConnector,
@@ -415,14 +415,18 @@ class SshHostLink implements HostLink {
     final transport = _transport;
     final endpoint = _endpoint;
     if (transport == null || endpoint == null || !_status.isConnected) return;
+    if (_client?.mux.state == DshConnectionState.connected) return;
     try {
       // A channel that opens after the timeout is still closed.
       final probe = transport.openTunnel('127.0.0.1', endpoint.port).then((channel) => channel.destroy());
-      await probe.timeout(const Duration(seconds: 5));
-    } catch (_) {
+      await probe.timeout(tunnelProbeTimeout);
+    } on TunnelRefused {
       if (!identical(transport, _transport)) return;
+      _forceRestart = true;
       _backoff.reset();
       _lost(HostLinkError(HostLinkErrorKind.dshStartFailed, appL10n.remoteErrDshStopped, retryable: true));
+    } catch (_) {
+      // Transient channel open timeout while SSH is busy; let _ping handle dead sockets.
     }
   }
 
@@ -510,8 +514,14 @@ class SshHostLink implements HostLink {
       _missedPings = 0;
       return true;
     } catch (_) {
+      // If the mux WebSocket inside this SSH tunnel is still connected, the
+      // underlying TCP connection is alive and simply busy multiplexing data.
+      if (_client?.mux.state == DshConnectionState.connected) {
+        _missedPings = 0;
+        return true;
+      }
       _missedPings++;
-      if (_missedPings >= 2 && identical(transport, _transport)) {
+      if (_missedPings >= 3 && identical(transport, _transport)) {
         _lost(HostLinkError(HostLinkErrorKind.unreachable, appL10n.remoteErrSshUnresponsive, retryable: true));
       }
       return false;
@@ -585,10 +595,10 @@ class SshHostLink implements HostLink {
         // Network changed or app resumed: verify the socket with a generous
         // timeout and a second chance so brief iOS app switches don't drop SSH.
         unawaited(() async {
-          var alive = await _ping(const Duration(seconds: 8));
+          var alive = await _ping(const Duration(seconds: 12));
           if (!alive && !_closed && _status.phase == HostLinkPhase.connected) {
-            await Future<void>.delayed(const Duration(milliseconds: 500));
-            alive = await _ping(const Duration(seconds: 8));
+            await Future<void>.delayed(const Duration(seconds: 1));
+            alive = await _ping(const Duration(seconds: 12));
           }
           if (!alive && !_closed && _status.phase == HostLinkPhase.connected) {
             _backoff.reset();

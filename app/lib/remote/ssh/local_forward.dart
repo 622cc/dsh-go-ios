@@ -135,13 +135,13 @@ class _Pair {
     final text = latin1.decode(data);
     final headerEnd = text.indexOf('\r\n\r\n');
     if (headerEnd < 0) return data;
-    final head = text.substring(0, headerEnd);
+    final head = text.substring(0, headerEnd + 2);
     final rewritten = head.replaceFirstMapped(
-      RegExp(r'^Host:\s*(?:127\.0\.0\.1|localhost)(?::\d+)?\s*$', multiLine: true, caseSensitive: false),
-      (_) => 'Host: $authority',
+      RegExp(r'\r\nHost:[ \t]*(?:127\.0\.0\.1|localhost)(?::\d+)?[ \t]*\r\n', caseSensitive: false),
+      (_) => '\r\nHost: $authority\r\n',
     );
     if (identical(head, rewritten) || head == rewritten) return data;
-    return latin1.encode(rewritten + text.substring(headerEnd));
+    return latin1.encode(rewritten + text.substring(headerEnd + 2));
   }
 
   void start() {

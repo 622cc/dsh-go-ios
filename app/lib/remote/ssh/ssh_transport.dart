@@ -56,7 +56,7 @@ class SshConnectParams {
     required this.username,
     required this.auth,
     required this.secrets,
-    this.connectTimeout = const Duration(seconds: 12),
+    this.connectTimeout = const Duration(seconds: 25),
   });
 
   factory SshConnectParams.of(SshHostConfig config, SshSecrets secrets) => SshConnectParams(
@@ -142,8 +142,8 @@ class DartSshTransport implements SshTransport {
       // The link runs its own keepalive with a timeout (dartssh2's never
       // notices a dead socket on its own).
       keepAliveInterval: null,
-      handshakeTimeout: const Duration(seconds: 20),
-      authTimeout: const Duration(seconds: 30),
+      handshakeTimeout: const Duration(seconds: 35),
+      authTimeout: const Duration(seconds: 45),
     );
     try {
       await client.authenticated;
