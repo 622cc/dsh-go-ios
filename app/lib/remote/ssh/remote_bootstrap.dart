@@ -82,6 +82,8 @@ class RemoteDshBootstrap {
     this.workingDirectory,
     this.environment = const {},
     this.startTimeout = const Duration(seconds: 60),
+    this.authIndexMjs,
+    this.authBridgeMjs,
   }) : launchCommand = launchCommand.trim().isEmpty ? defaultDshLaunchCommand : launchCommand.trim();
 
   final RemoteShell shell;
@@ -93,7 +95,19 @@ class RemoteDshBootstrap {
   final Map<String, String> environment;
   final Duration startTimeout;
 
+  /// Optional `dsh-app-auth` plugin modules (`assets/engine/auth/index.mjs` and
+  /// `bridge.mjs`) deployed to `$HOME/.dsh-app-remote/auth/` so remote SSH hosts
+  /// also expose `appAuth/*` (ChatGPT / Claude official subscription sign-in).
+  final String? authIndexMjs;
+  final String? authBridgeMjs;
+
   bool get _defaultCommand => launchCommand == defaultDshLaunchCommand;
+  bool get _withAuthBridge =>
+      _defaultCommand &&
+      authIndexMjs != null &&
+      authIndexMjs!.isNotEmpty &&
+      authBridgeMjs != null &&
+      authBridgeMjs!.isNotEmpty;
 
   /// Reuses the running instance when it's healthy, otherwise starts one.
   /// [onDetail] receives short progress notes for the UI.
@@ -178,13 +192,16 @@ ours() {
   }
 
   String probeScript() {
+    final cmdCheck = _withAuthBridge
+        ? 'if [ "\$(cat "\$D/web.cmd" 2>/dev/null)" = ${shQuote(launchCommand)} ] && [ -f "\$D/auth/auth.patch.yml" ] && [ -f "\$D/auth/index.mjs" ] && grep -q "realpathSync" "\$D/auth/index.mjs" 2>/dev/null; then printf \'$_tag samecmd\\n\'; fi\n'
+        : 'if [ "\$(cat "\$D/web.cmd" 2>/dev/null)" = ${shQuote(launchCommand)} ]; then printf \'$_tag samecmd\\n\'; fi\n';
     return '${_prelude()}'
         'printf \'$_tag home %s\\n\' "\$HOME"\n'
         'if [ -f "\$D/web.pid" ]; then\n'
         '  P=\$(cat "\$D/web.pid" 2>/dev/null)\n'
         '  if [ -n "\$P" ] && ours "\$P"; then\n'
         '    printf \'$_tag alive %s\\n\' "\$P"\n'
-        '    if [ "\$(cat "\$D/web.cmd" 2>/dev/null)" = ${shQuote(launchCommand)} ]; then printf \'$_tag samecmd\\n\'; fi\n'
+        '    $cmdCheck'
         '    L=\$(grep -E \'https?://[^ ]*[?&]token=\' "\$D/web.log" 2>/dev/null | tail -n 1)\n'
         '    printf \'$_tag url %s\\n\' "\$L"\n'
         '  else\n'
@@ -233,15 +250,25 @@ printf 'DSHAPP dsh %s\n' "$(command -v dsh)"
       ..writeln('chmod 700 "\$D" 2>/dev/null')
       ..write(_stopOld());
     if (_defaultCommand) b.write(_dshSearch);
+    if (_withAuthBridge) {
+      b
+        ..writeln('mkdir -p "\$D/auth"')
+        ..writeln('printf \'%s\' ${shQuote(authIndexMjs!)} > "\$D/auth/index.mjs"')
+        ..writeln('printf \'%s\' ${shQuote(authBridgeMjs!)} > "\$D/auth/bridge.mjs"')
+        ..writeln('printf -- \'- insert:\\n    - id: dsh-app-auth\\n      name: %s/auth/index.mjs\\n\' "\$D" > "\$D/auth/auth.patch.yml"');
+    }
     if (cwd != null && cwd.isNotEmpty) {
       b.writeln('cd ${remotePathExpr(cwd)} 2>/dev/null || printf \'$_tag nocwd\\n\'');
     }
+    final launchArgs = _withAuthBridge
+        ? '$launchCommand --patch "\$D/auth/auth.patch.yml" --host 127.0.0.1 --port 0 --no-open'
+        : '$launchCommand --host 127.0.0.1 --port 0 --no-open';
     b
       ..writeln('printf \'%s\' ${shQuote(launchCommand)} > "\$D/web.cmd"')
       ..writeln(': > "\$D/web.log"')
       ..writeln('NO_COLOR=1; export NO_COLOR')
       ..writeln('N=""; if command -v nohup >/dev/null 2>&1; then N=nohup; fi')
-      ..writeln('\$N $launchCommand --host 127.0.0.1 --port 0 --no-open </dev/null >>"\$D/web.log" 2>&1 &')
+      ..writeln('\$N $launchArgs </dev/null >>"\$D/web.log" 2>&1 &')
       ..writeln('P=\$!')
       ..writeln('_st "\$P" > "\$D/web.st"')
       ..writeln('printf \'%s\\n\' "\$P" > "\$D/web.pid"')

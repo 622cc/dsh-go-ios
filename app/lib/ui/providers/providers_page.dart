@@ -114,13 +114,11 @@ class ProvidersPage extends ConsumerWidget {
 String? _summary(WidgetRef ref, HostConnection? conn, ProvidersSnapshot? snapshot) {
   if (conn == null || snapshot == null) return null;
   final remote = !conn.isLocal;
-  final bool deepSeek;
-  if (remote) {
-    deepSeek = catalogHasDeepSeek(ref.watch(modelCatalogProvider).value);
-  } else {
-    final account = ref.watch(accountProvider);
-    deepSeek = account.signedIn || ref.watch(settingsProvider.select((s) => s.hasApiKey));
-  }
+  final account = ref.watch(accountProvider);
+  final hasKey = ref.watch(settingsProvider.select((s) => s.hasApiKey));
+  final deepSeek = account.signedIn ||
+      hasKey ||
+      (remote && catalogHasDeepSeek(ref.watch(modelCatalogProvider).value));
   final subs = ref.watch(subscriptionsProvider).value;
   final statuses = subs != null && subs.available ? subs.statuses : const <SubscriptionStatus>[];
   final total = 1 + statuses.length + snapshot.providers.length;
@@ -133,8 +131,7 @@ String? _summary(WidgetRef ref, HostConnection? conn, ProvidersSnapshot? snapsho
   return remote ? '${conn.label} · $counts' : counts;
 }
 
-/// DeepSeek: the app's own account / API Key on 本机, the engine's catalog on
-/// a remote host (whose DeepSeek setup lives on that host).
+/// DeepSeek: account or API Key (synced to the active engine, local or SSH).
 class _DeepSeekCard extends ConsumerWidget {
   const _DeepSeekCard();
 
@@ -142,36 +139,28 @@ class _DeepSeekCard extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final l10n = context.l10n;
     final conn = ref.watch(activeConnectionProvider).value;
-    final Widget row;
-    if (conn != null && !conn.isLocal) {
-      final ready = catalogHasDeepSeek(ref.watch(modelCatalogProvider).value);
-      row = ListPageRow(
-        leading: const Monogram('DeepSeek'),
-        title: 'DeepSeek',
-        subtitle: ready ? l10n.engineFieldConfigured : l10n.engineProvidersNotConfiguredHere,
-        trailing: ProviderDot(ready ? StatusTone.ok : StatusTone.idle),
-      );
-    } else {
-      final account = ref.watch(accountProvider);
-      final settings = ref.watch(settingsProvider);
-      final (String subtitle, StatusTone tone) = switch (account.phase) {
-        AccountPhase.signedIn => (
-          l10n.engineProvidersAccount(account.profile?.displayName ?? l10n.commonSignedIn),
-          StatusTone.ok,
-        ),
-        AccountPhase.signingIn => (l10n.engineProvidersSigningIn, StatusTone.busy),
-        _ when settings.hasApiKey => ('API Key · ${maskApiKey(settings.apiKey)}', StatusTone.ok),
-        _ => (l10n.engineProvidersSignInOrKey, StatusTone.idle),
-      };
-      row = ListPageRow(
-        leading: const Monogram('DeepSeek'),
-        title: 'DeepSeek',
-        subtitle: subtitle,
-        trailing: ProviderDot(tone),
-        chevron: true,
-        onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AccountPage())),
-      );
-    }
+    final account = ref.watch(accountProvider);
+    final settings = ref.watch(settingsProvider);
+    final remoteCatalogReady =
+        conn != null && !conn.isLocal && catalogHasDeepSeek(ref.watch(modelCatalogProvider).value);
+    final (String subtitle, StatusTone tone) = switch (account.phase) {
+      AccountPhase.signedIn => (
+        l10n.engineProvidersAccount(account.profile?.displayName ?? l10n.commonSignedIn),
+        StatusTone.ok,
+      ),
+      AccountPhase.signingIn => (l10n.engineProvidersSigningIn, StatusTone.busy),
+      _ when settings.hasApiKey => ('API Key · ${maskApiKey(settings.apiKey)}', StatusTone.ok),
+      _ when remoteCatalogReady => (l10n.engineFieldConfigured, StatusTone.ok),
+      _ => (l10n.engineProvidersSignInOrKey, StatusTone.idle),
+    };
+    final row = ListPageRow(
+      leading: const Monogram('DeepSeek'),
+      title: 'DeepSeek',
+      subtitle: subtitle,
+      trailing: ProviderDot(tone),
+      chevron: true,
+      onTap: () => Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => const AccountPage())),
+    );
     return Padding(
       padding: const EdgeInsets.only(bottom: 24),
       child: ListPageCard(title: l10n.engineProvidersOfficial, children: [row]),

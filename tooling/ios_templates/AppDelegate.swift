@@ -3,6 +3,11 @@ import Flutter
 
 @main
 @objc class AppDelegate: FlutterAppDelegate {
+  private var linksChannel: FlutterMethodChannel?
+  private var linksReady = false
+  private var pendingLinks: [String] = []
+  private var bgTask: UIBackgroundTaskIdentifier = .invalid
+
   override func application(
     _ application: UIApplication,
     didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -14,19 +19,111 @@ import Flutter
       setupDshChannels(controller: controller)
     }
 
+    if let url = launchOptions?[.url] as? URL {
+      deliverLink(url)
+    }
+
     return ok
+  }
+
+  override func application(
+    _ app: UIApplication,
+    open url: URL,
+    options: [UIApplication.OpenURLOptionsKey : Any] = [:]
+  ) -> Bool {
+    deliverLink(url)
+    dismissPresentedBrowser()
+    return true
+  }
+
+  override func application(
+    _ application: UIApplication,
+    continue userActivity: NSUserActivity,
+    restorationHandler: @escaping ([UIUserActivityRestoring]?) -> Void
+  ) -> Bool {
+    if userActivity.activityType == NSUserActivityTypeBrowsingWeb,
+       let url = userActivity.webpageURL {
+      deliverLink(url)
+      dismissPresentedBrowser()
+      return true
+    }
+    return super.application(application, continue: userActivity, restorationHandler: restorationHandler)
+  }
+
+  override func applicationDidEnterBackground(_ application: UIApplication) {
+    super.applicationDidEnterBackground(application)
+    // 保持后台网络与 SSH 隧道存活，防止切去浏览器授权或切应用时 SSH 断联及本地回调端口冻结
+    if bgTask != .invalid {
+      application.endBackgroundTask(bgTask)
+      bgTask = .invalid
+    }
+    bgTask = application.beginBackgroundTask(withName: "DshSshKeepAlive") { [weak self] in
+      guard let self = self else { return }
+      if self.bgTask != .invalid {
+        application.endBackgroundTask(self.bgTask)
+        self.bgTask = .invalid
+      }
+    }
+  }
+
+  override func applicationWillEnterForeground(_ application: UIApplication) {
+    super.applicationWillEnterForeground(application)
+    if bgTask != .invalid {
+      application.endBackgroundTask(bgTask)
+      bgTask = .invalid
+    }
+  }
+
+  private func dismissPresentedBrowser() {
+    DispatchQueue.main.async { [weak self] in
+      if let presented = self?.window?.rootViewController?.presentedViewController {
+        presented.dismiss(animated: true, completion: nil)
+      }
+    }
+  }
+
+  private func deliverLink(_ url: URL) {
+    let uri = url.absoluteString
+    guard !uri.isEmpty else { return }
+    if linksReady, let channel = linksChannel {
+      channel.invokeMethod("link", arguments: ["uri": uri])
+    } else {
+      pendingLinks.append(uri)
+    }
   }
 
   private func setupDshChannels(controller: FlutterViewController) {
     let messenger = controller.binaryMessenger
 
+    // 0. dsh/links (处理 dshgo:// 授权回调与分享深链)
+    let links = FlutterMethodChannel(name: "dsh/links", binaryMessenger: messenger)
+    self.linksChannel = links
+    links.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
+      guard let self = self else {
+        result(nil)
+        return
+      }
+      if call.method == "ready" {
+        self.linksReady = true
+        let queued = self.pendingLinks
+        self.pendingLinks.removeAll()
+        for uri in queued {
+          links.invokeMethod("link", arguments: ["uri": uri])
+        }
+        result(true)
+      } else {
+        result(nil)
+      }
+    }
+
     // 1. dsh/app
     let appChannel = FlutterMethodChannel(name: "dsh/app", binaryMessenger: messenger)
-    appChannel.setMethodCallHandler { (call: FlutterMethodCall, result: @escaping FlutterResult) in
+    appChannel.setMethodCallHandler { [weak self] (call: FlutterMethodCall, result: @escaping FlutterResult) in
       switch call.method {
       case "getTimeZoneId":
         result(TimeZone.current.identifier)
       case "bringToFront":
+        self?.dismissPresentedBrowser()
         result(nil)
       case "getRefreshRate":
         result(Float(UIScreen.main.maximumFramesPerSecond))

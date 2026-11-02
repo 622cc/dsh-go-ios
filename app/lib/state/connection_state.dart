@@ -27,6 +27,7 @@ class HostConnection {
     this.hostId,
     this.name,
     this.workingDirectory,
+    this.localCallbackOrigin,
   });
 
   final DshClient client;
@@ -47,6 +48,10 @@ class HostConnection {
   /// Default cwd for new sessions on a remote host (absolute, `~` resolved);
   /// null lets the remote DSH pick.
   final String? workingDirectory;
+
+  /// `http://127.0.0.1:<localPort>` reachable from the phone's browser (for
+  /// DeepSeek OAuth callbacks over the local SSH tunnel).
+  final String? localCallbackOrigin;
 }
 
 typedef LocalClientConnector = Future<DshClient> Function({required Uri baseUri, required String token});
@@ -180,6 +185,11 @@ final sshLinkFactoryProvider = Provider<SshLinkFactory>(
 /// The live link to a remote host; null for 本机 or an unknown host. Kept while
 /// something watches it (the active connection, a status row); closed after.
 final hostLinkProvider = Provider.autoDispose.family<HostLink?, HostRef>((ref, host) {
+  final isActive = ref.watch(activeHostProvider.select((a) => a == host));
+  if (isActive) {
+    final keepAlive = ref.keepAlive();
+    ref.onDispose(keepAlive.close);
+  }
   switch (host.kind) {
     case HostKind.local:
       return null;
@@ -253,6 +263,11 @@ class RemoteConnectionController extends AsyncNotifier<HostConnection?> {
 
   @override
   Future<HostConnection?> build() async {
+    final isActive = ref.watch(activeHostProvider.select((a) => a == host));
+    if (isActive) {
+      final keepAlive = ref.keepAlive();
+      ref.onDispose(keepAlive.close);
+    }
     final link = ref.watch(hostLinkProvider(host));
     if (link == null) return null;
     final name = ref.watch(hostNameProvider(host));
@@ -264,6 +279,9 @@ class RemoteConnectionController extends AsyncNotifier<HostConnection?> {
       kind: host.kind,
       hostId: host.id,
       workingDirectory: link is SshHostLink ? link.resolvedWorkingDirectory : null,
+      localCallbackOrigin: link is SshHostLink && link.localPort != null
+          ? 'http://127.0.0.1:${link.localPort}'
+          : null,
     );
 
     if (link is SshHostLink) {
@@ -291,7 +309,23 @@ class RemoteConnectionController extends AsyncNotifier<HostConnection?> {
       unawaited(clients.cancel());
       unawaited(statuses.cancel());
     });
-    return wrap(await link.open());
+    final client = await link.open();
+    if (!ref.mounted) return null;
+    // Sync DeepSeek API key saved in the app to the active remote engine.
+    ref.listen(settingsProvider.select((s) => s.apiKey), (prev, next) {
+      if (next == prev) return;
+      final activeClient = link.currentClient ?? client;
+      if (next.isNotEmpty) {
+        unawaited(activeClient.setProviderKey(next).catchError((_) {}));
+      } else if (prev != null && prev.isNotEmpty) {
+        unawaited(activeClient.clearProviderKey().catchError((_) {}));
+      }
+    });
+    final apiKey = ref.read(settingsProvider).apiKey;
+    if (apiKey.isNotEmpty) {
+      unawaited(client.setProviderKey(apiKey).catchError((_) {}));
+    }
+    return wrap(client);
   }
 
   /// Gives up any backoff and connects again now.

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'ssh_transport.dart';
@@ -14,18 +15,43 @@ typedef TunnelOpener = Future<TunnelChannel> Function();
 /// in [TunnelOpener] until the link has reconnected. The local port, and so
 /// the DshClient's base URL, stays the same across reconnects.
 class LocalForwarder {
-  LocalForwarder._(this._server, this._open);
+  LocalForwarder._(this._server, this._serverV6, this._open, {this.remoteAuthority});
 
   final ServerSocket _server;
+  final ServerSocket? _serverV6;
   final TunnelOpener _open;
   final Set<_Pair> _pairs = {};
   final Set<Socket> _pending = {};
   bool _closed = false;
 
-  static Future<LocalForwarder> bind(TunnelOpener open) async {
-    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final forwarder = LocalForwarder._(server, open);
+  /// Optional `127.0.0.1:<remotePort>` authority so browser OAuth callbacks
+  /// arriving at `127.0.0.1:<localPort>` pass DSH's Host header fence.
+  String? remoteAuthority;
+
+  static Future<LocalForwarder> bind(
+    TunnelOpener open, {
+    int preferredPort = 0,
+    String? remoteAuthority,
+  }) async {
+    ServerSocket server;
+    if (preferredPort > 0) {
+      try {
+        server = await ServerSocket.bind(InternetAddress.loopbackIPv4, preferredPort);
+      } catch (_) {
+        server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      }
+    } else {
+      server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    }
+    ServerSocket? serverV6;
+    try {
+      serverV6 = await ServerSocket.bind(InternetAddress.loopbackIPv6, server.port);
+    } catch (_) {
+      // IPv6 loopback unavailable or port taken on ::1: IPv4 loopback still works.
+    }
+    final forwarder = LocalForwarder._(server, serverV6, open, remoteAuthority: remoteAuthority);
     server.listen(forwarder._accept, onError: (_) {});
+    serverV6?.listen(forwarder._accept, onError: (_) {});
     return forwarder;
   }
 
@@ -54,7 +80,12 @@ class LocalForwarder {
       socket.destroy();
       return;
     }
-    final pair = _Pair(socket, channel, onDone: (p) => _pairs.remove(p));
+    final pair = _Pair(
+      socket,
+      channel,
+      remoteAuthority: remoteAuthority,
+      onDone: (p) => _pairs.remove(p),
+    );
     _pairs.add(pair);
     pair.start();
   }
@@ -77,22 +108,45 @@ class LocalForwarder {
     _closed = true;
     dropConnections();
     await _server.close();
+    await _serverV6?.close().catchError((_) {});
   }
 }
 
 class _Pair {
-  _Pair(this.socket, this.channel, {required this.onDone});
+  _Pair(this.socket, this.channel, {this.remoteAuthority, required this.onDone});
 
   final Socket socket;
   final TunnelChannel channel;
+  final String? remoteAuthority;
   final void Function(_Pair) onDone;
   StreamSubscription<List<int>>? _up;
   StreamSubscription<List<int>>? _down;
+  bool _firstChunk = true;
   bool _done = false;
+
+  List<int> _rewriteHostIfNeeded(List<int> data) {
+    if (!_firstChunk) return data;
+    _firstChunk = false;
+    final authority = remoteAuthority;
+    if (authority == null || authority.isEmpty || data.length < 16) return data;
+    // Fast check for HTTP request start ('G', 'P', 'H', 'D', 'O')
+    final b0 = data[0];
+    if (b0 != 0x47 && b0 != 0x50 && b0 != 0x48 && b0 != 0x44 && b0 != 0x4F) return data;
+    final text = latin1.decode(data);
+    final headerEnd = text.indexOf('\r\n\r\n');
+    if (headerEnd < 0) return data;
+    final head = text.substring(0, headerEnd);
+    final rewritten = head.replaceFirstMapped(
+      RegExp(r'^Host:\s*(?:127\.0\.0\.1|localhost)(?::\d+)?\s*$', multiLine: true, caseSensitive: false),
+      (_) => 'Host: $authority',
+    );
+    if (identical(head, rewritten) || head == rewritten) return data;
+    return latin1.encode(rewritten + text.substring(headerEnd));
+  }
 
   void start() {
     _up = socket.listen(
-      channel.sink.add,
+      (chunk) => channel.sink.add(_rewriteHostIfNeeded(chunk)),
       onDone: () {
         unawaited(channel.sink.close().catchError((_) {}));
       },

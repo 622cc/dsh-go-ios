@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dsh_client/dsh_client.dart';
+import 'package:flutter/services.dart' show rootBundle;
 
 import '../../l10n/l10n.dart';
 import '../link_status.dart';
@@ -105,15 +106,53 @@ class SshHostLink implements HostLink {
   SshTransport? _connectingTransport;
   Completer<SshTransport> _ready = Completer<SshTransport>();
   LocalForwarder? _forwarder;
+  final Map<int, LocalForwarder> _extraForwarders = {};
   RemoteDshEndpoint? _endpoint;
   DshClient? _client;
   Future<DshClient>? _opening;
   Timer? _keepAlive;
+  Future<bool>? _pingInFlight;
   int _missedPings = 0;
   bool _closed = false;
   bool _recovering = false;
   bool _needsRelogin = false;
   bool _forceRestart = false;
+
+  static (String?, String?)? _cachedAuthAssets;
+
+  static Future<(String?, String?)> _loadAuthAssets() async {
+    if (_cachedAuthAssets case final cached?) return cached;
+    try {
+      final indexMjs = await rootBundle.loadString('assets/engine/auth/index.mjs');
+      final bridgeMjs = await rootBundle.loadString('assets/engine/auth/bridge.mjs');
+      if (indexMjs.isNotEmpty && bridgeMjs.isNotEmpty) {
+        final pair = (indexMjs, bridgeMjs);
+        _cachedAuthAssets = pair;
+        return pair;
+      }
+    } catch (_) {
+      // Pure Dart unit tests without Flutter asset bundle.
+    }
+    return (null, null);
+  }
+
+  /// Binds `127.0.0.1:[port]` on the phone and forwards it to `127.0.0.1:[port]`
+  /// on the remote SSH host (used for ChatGPT 1455 / Claude 53692 OAuth callbacks).
+  Future<void> forwardRemotePort(int port) async {
+    if (_closed || port <= 0 || _extraForwarders.containsKey(port)) return;
+    try {
+      final forwarder = await LocalForwarder.bind(
+        () => _openChannelToPort(port),
+        preferredPort: port,
+        remoteAuthority: '127.0.0.1:$port',
+      );
+      if (_closed || forwarder.port != port) {
+        await forwarder.close();
+        return;
+      }
+      _extraForwarders[port] = forwarder;
+    } catch (_) {}
+  }
 
   SshHostConfig get config => _config;
 
@@ -245,11 +284,15 @@ class SshHostLink implements HostLink {
     _connectingTransport = transport;
     at(HostLinkStep.startDsh, detail: appL10n.remoteCheckingDsh);
     try {
+      final (authIndexMjs, authBridgeMjs) = await _loadAuthAssets();
+      _checkOpen();
       final bootstrap = RemoteDshBootstrap(
         transport,
         launchCommand: _config.launchCommand,
         workingDirectory: _config.workingDirectory,
         environment: remoteEnvironment,
+        authIndexMjs: authIndexMjs,
+        authBridgeMjs: authBridgeMjs,
       );
       final endpoint = await bootstrap.ensureRunning(
         forceRestart: _forceRestart,
@@ -275,12 +318,18 @@ class SshHostLink implements HostLink {
       final previous = _endpoint;
       _endpoint = endpoint;
       if (_forwarder == null) {
-        final forwarder = await LocalForwarder.bind(_openChannel);
+        final forwarder = await LocalForwarder.bind(
+          _openChannel,
+          preferredPort: endpoint.port,
+          remoteAuthority: endpoint.authority,
+        );
         if (_closed) {
           await forwarder.close();
           throw StateError('link closed');
         }
         _forwarder = forwarder;
+      } else {
+        _forwarder!.remoteAuthority = endpoint.authority;
       }
       _connectingTransport = null;
       _installTransport(transport);
@@ -397,15 +446,22 @@ class SshHostLink implements HostLink {
     if (_ready.isCompleted) _ready = Completer<SshTransport>();
     transport?.close();
     _forwarder?.dropConnections();
+    for (final f in _extraForwarders.values) {
+      f.dropConnections();
+    }
   }
 
   /// Channels for the forwarder: waits (bounded) for a live SSH connection.
   Future<TunnelChannel> _openChannel() async {
+    final port = _endpoint?.port;
+    if (port == null) throw StateError('no remote endpoint yet');
+    return _openChannelToPort(port);
+  }
+
+  Future<TunnelChannel> _openChannelToPort(int port) async {
     _checkOpen();
     final transport = _transport ?? await _ready.future.timeout(const Duration(seconds: 20));
     _checkOpen();
-    final port = _endpoint?.port;
-    if (port == null) throw StateError('no remote endpoint yet');
     var abandoned = false;
     try {
       return await transport
@@ -437,7 +493,16 @@ class SshHostLink implements HostLink {
     if (mux == DshConnectionState.connecting || mux == DshConnectionState.reconnecting) await _probeDsh();
   }
 
-  Future<bool> _ping(Duration timeout) async {
+  Future<bool> _ping(Duration timeout) {
+    if (_pingInFlight case final inflight?) return inflight;
+    final future = _doPing(timeout);
+    _pingInFlight = future;
+    return future.whenComplete(() {
+      if (identical(_pingInFlight, future)) _pingInFlight = null;
+    });
+  }
+
+  Future<bool> _doPing(Duration timeout) async {
     final transport = _transport;
     if (transport == null || _closed) return false;
     try {
@@ -517,12 +582,15 @@ class SshHostLink implements HostLink {
     if (_closed) return;
     switch (_status.phase) {
       case HostLinkPhase.connected:
-        // Network changed under us: a quick ping tells whether the socket
-        // survived; a dead one triggers reconnect without waiting for the
-        // regular keepalive.
+        // Network changed or app resumed: verify the socket with a generous
+        // timeout and a second chance so brief iOS app switches don't drop SSH.
         unawaited(() async {
-          final alive = await _ping(const Duration(seconds: 5));
-          if (!alive) {
+          var alive = await _ping(const Duration(seconds: 8));
+          if (!alive && !_closed && _status.phase == HostLinkPhase.connected) {
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+            alive = await _ping(const Duration(seconds: 8));
+          }
+          if (!alive && !_closed && _status.phase == HostLinkPhase.connected) {
             _backoff.reset();
             _lost(HostLinkError(HostLinkErrorKind.unreachable, appL10n.remoteErrSshNetworkChanged, retryable: true));
           }
@@ -565,6 +633,10 @@ class SshHostLink implements HostLink {
     _teardownTransport();
     await _forwarder?.close();
     _forwarder = null;
+    for (final f in _extraForwarders.values) {
+      await f.close().catchError((_) {});
+    }
+    _extraForwarders.clear();
     final client = _client;
     _client = null;
     if (client != null) await client.close().catchError((_) {});

@@ -22,6 +22,13 @@ data['NSLocalNetworkUsageDescription'] = '用于连接局域网电脑上的 Deep
 data['UIFileSharingEnabled'] = True
 data['LSSupportsOpeningDocumentsInPlace'] = True
 data['UIBackgroundModes'] = ['audio', 'fetch', 'processing']
+data['CFBundleURLTypes'] = [
+    {
+        'CFBundleTypeRole': 'Editor',
+        'CFBundleURLName': 'io.github.ccch1mneyyy.dshgo',
+        'CFBundleURLSchemes': ['dshgo'],
+    }
+]
 
 with open(plist_path, 'wb') as f:
     plistlib.dump(data, f)

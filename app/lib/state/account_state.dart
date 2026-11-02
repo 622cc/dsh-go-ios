@@ -34,9 +34,11 @@ export 'account_api.dart';
 /// Only the local engine qualifies: the browser on this phone must reach the
 /// Host's `/oauth/callback`, and a remote Host's loopback is not reachable.
 final accountApiProvider = Provider<AccountApi?>((ref) {
-  final conn = ref.watch(localConnectionProvider).value;
-  if (conn == null || !conn.isLocal) return null;
-  final origin = loopbackCallbackOrigin(ref.read(localRuntimeProvider).status.baseUrl);
+  final conn = ref.watch(activeConnectionProvider).value ?? ref.watch(localConnectionProvider).value;
+  if (conn == null) return null;
+  final rawOrigin = conn.localCallbackOrigin ??
+      (conn.isLocal ? ref.read(localRuntimeProvider).status.baseUrl : null);
+  final origin = loopbackCallbackOrigin(rawOrigin);
   if (origin == null) return null;
   return DshAccountApi(conn.client, callbackOrigin: origin);
 });
@@ -609,7 +611,10 @@ class AccountController extends Notifier<AccountState> {
   Future<void> _start(_Run run) async {
     // Nothing to wait 90 s for: say so at once. (The runtime's state lives
     // as long as the app; without it there is no report to go by.)
-    if (ref.exists(localRuntimeProvider) && ref.read(localRuntimeProvider).status.runtimeMissing) {
+    if (_api == null &&
+        ref.read(activeConnectionProvider).value == null &&
+        ref.exists(localRuntimeProvider) &&
+        ref.read(localRuntimeProvider).status.runtimeMissing) {
       _fail(run, const SignInFailure(SignInFailureKind.noRuntime));
       return;
     }

@@ -247,7 +247,7 @@ class Backoff {
   Backoff({
     this.initial = const Duration(seconds: 1),
     this.max = const Duration(seconds: 30),
-    this.maxAttempts = 8,
+    this.maxAttempts = 30,
     math.Random? random,
   }) : _random = random ?? math.Random();
 

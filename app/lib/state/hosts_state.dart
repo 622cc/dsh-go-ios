@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../l10n/l10n.dart';
 import '../remote/link_status.dart';
 import '../remote/relay/dsh_remote_backend.dart';
+import 'app_foreground.dart';
 import 'app_info.dart';
 import '../remote/relay/relay_backend.dart';
 import '../remote/relay/webrtc_peer.dart';
@@ -562,6 +563,7 @@ class RelayAccountController extends AsyncNotifier<RelayAccountState> {
         state = AsyncData(_now.copyWith(error: () => appL10n.stateHostBrowserFailed));
       }
       final user = await session.completed;
+      if (opened) unawaited(ref.read(appForegroundProvider)());
       if (!_isCurrent(epoch, backend)) return;
       var failed = false;
       final hosts = await backend.listHosts(refresh: true).catchError((Object _) {

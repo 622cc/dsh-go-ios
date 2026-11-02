@@ -27,6 +27,7 @@
 //   not resolve; the host's own copy of the protocol package is loaded from the
 //   running DSH install instead (same file, same module instance).
 
+import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 
@@ -37,7 +38,14 @@ const GUEST_DSH_BIN = '/opt/dsh/node_modules/@deepseek-ai/dsh/lib/bin.js'
 
 /** Imports a package from the running DSH install. */
 async function hostImport(specifier) {
-  const anchors = [process.argv[1], GUEST_DSH_BIN].filter((anchor) => typeof anchor === 'string' && anchor.length > 0)
+  const rawAnchors = [process.argv[1], GUEST_DSH_BIN].filter((anchor) => typeof anchor === 'string' && anchor.length > 0)
+  const anchors = []
+  for (const anchor of rawAnchors) {
+    try {
+      anchors.push(realpathSync(anchor))
+    } catch {}
+    anchors.push(anchor)
+  }
   const failures = []
   for (const anchor of anchors) {
     try {

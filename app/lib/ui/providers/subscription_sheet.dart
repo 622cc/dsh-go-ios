@@ -9,8 +9,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../l10n/l10n.dart';
+import '../../remote/ssh/ssh_link.dart';
 import '../../state/account_state.dart' show accountBrowserProvider;
 import '../../state/app_foreground.dart';
+import '../../state/connection_state.dart';
+import '../../state/hosts_state.dart';
 import '../../state/subscriptions_state.dart';
 import '../common/app_sheet.dart';
 import '../common/sheet_title_bar.dart';
@@ -88,7 +91,9 @@ class _SubscriptionLoginSheetState extends ConsumerState<SubscriptionLoginSheet>
   void _onStep() {
     if (!mounted) return;
     final step = _session!.step;
-    if (step.phase == LoginPhase.open && step.url != null && step.url != _opened) {
+    if ((step.phase == LoginPhase.open || step.phase == LoginPhase.prompt) &&
+        step.url != null &&
+        step.url != _opened) {
       unawaited(_open(step.url!));
     }
     if (step.phase == LoginPhase.done && _doneTimer == null) {
@@ -104,6 +109,19 @@ class _SubscriptionLoginSheetState extends ConsumerState<SubscriptionLoginSheet>
 
   Future<void> _open(String url) async {
     _opened = url;
+    final uri = Uri.tryParse(url);
+    if (uri != null) {
+      final redirectRaw = uri.queryParameters['redirect_uri'];
+      final redirectUri = redirectRaw == null ? null : Uri.tryParse(redirectRaw);
+      final callbackPort = redirectUri?.hasPort == true ? redirectUri!.port : 0;
+      if (callbackPort > 0 && mounted) {
+        final link = ref.read(hostLinkProvider(ref.read(activeHostProvider)));
+        if (link is SshHostLink) {
+          await link.forwardRemotePort(callbackPort);
+        }
+      }
+    }
+    if (!mounted) return;
     final ok = await ref.read(accountBrowserProvider).open(Uri.parse(url));
     if (mounted) setState(() => _browserFailed = !ok);
   }
@@ -158,6 +176,9 @@ class _SubscriptionLoginSheetState extends ConsumerState<SubscriptionLoginSheet>
         helper: step.message,
         busy: session?.answering ?? false,
         onSubmit: (value) => unawaited(session?.answer(value)),
+        copied: _copied == 'link',
+        onReopen: step.url == null ? null : () => unawaited(_open(step.url!)),
+        onCopy: step.url == null ? null : () => unawaited(_copy('link', step.url!)),
       ),
       LoginPhase.done => _Outcome(key: const ValueKey('done'), ok: true, title: l10n.commonSignedIn),
       LoginPhase.failed || LoginPhase.cancelled => _Outcome(
@@ -428,6 +449,9 @@ class _PromptBody extends StatefulWidget {
     required this.helper,
     required this.busy,
     required this.onSubmit,
+    this.copied = false,
+    this.onReopen,
+    this.onCopy,
   });
 
   final TextEditingController controller;
@@ -435,6 +459,9 @@ class _PromptBody extends StatefulWidget {
   final String? helper;
   final bool busy;
   final ValueChanged<String> onSubmit;
+  final bool copied;
+  final VoidCallback? onReopen;
+  final VoidCallback? onCopy;
 
   @override
   State<_PromptBody> createState() => _PromptBodyState();
@@ -513,6 +540,16 @@ class _PromptBodyState extends State<_PromptBody> {
                 )
               : Text(l10n.engineSubscriptionConfirm),
         ),
+        if (widget.onReopen != null || widget.onCopy != null) ...[
+          const SizedBox(height: 12),
+          _Pair(
+            left: OutlinedButton(onPressed: widget.onReopen, child: Text(l10n.engineSubscriptionReopen)),
+            right: OutlinedButton(
+              onPressed: widget.onCopy,
+              child: Text(widget.copied ? l10n.commonCopied : l10n.commonCopyLink),
+            ),
+          ),
+        ],
       ],
     );
   }
