@@ -17,7 +17,6 @@ flutter create --platforms=ios --org io.github.ccch1mneyyy .
 
 echo "==> 注入 DSH 适配层与 TrollStore 巨魔专属配置..."
 cp "$TEMPLATES_DIR/AppDelegate.swift" "$APP_DIR/ios/Runner/AppDelegate.swift"
-cp "$TEMPLATES_DIR/DshEngineService.swift" "$APP_DIR/ios/Runner/DshEngineService.swift"
 cp "$TEMPLATES_DIR/Entitlements.plist" "$APP_DIR/ios/Entitlements.plist"
 
 # 安全追加自定义 Info.plist 权限配置，不破坏 Flutter 官方键值
