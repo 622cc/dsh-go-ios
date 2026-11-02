@@ -75,6 +75,8 @@ String? unavailableReason(WidgetRef ref, SpotCondition? condition, L10n l10n) {
   return met ? null : condition!.label(l10n);
 }
 
+const _localOnlyPages = {SettingsPageId.phone, SettingsPageId.engine, SettingsPageId.background};
+
 class SettingsSearchPage extends ConsumerStatefulWidget {
   const SettingsSearchPage({super.key});
 
@@ -156,7 +158,12 @@ class _SettingsSearchPageState extends ConsumerState<SettingsSearchPage> {
         ? const <SearchHit>[]
         : searchSettings(
             query,
-            spots: [...SettingsIndex.spots, ...extra],
+            spots: [
+              // Remote-only edition: hide on-phone pages (手机控制 / 本机引擎 / 后台保活).
+              for (final s in SettingsIndex.spots)
+                if (!SettingsIndex.chain(s.isEntry ? s.opens! : s.page).any(_localOnlyPages.contains)) s,
+              ...extra,
+            ],
             features: ref.watch(featureSectionsProvider),
             zh: _zh,
             en: _en,

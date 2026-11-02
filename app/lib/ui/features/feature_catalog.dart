@@ -399,14 +399,6 @@ final featureSections = <FeatureSection>[
       native: (id) => PermissionPage(sessionId: id),
     ),
     FeatureItem.localized(
-      id: 'phone',
-      title: (l10n) => l10n.catalogPhoneControl,
-      summary: (l10n) => l10n.catalogPhoneControlSummary,
-      icon: AppIcons.phoneControl,
-      tile: FeatureKind.phone,
-      native: (_) => const PhoneControlScreen(),
-    ),
-    FeatureItem.localized(
       id: 'remote',
       title: (l10n) => l10n.commonRemoteHost,
       summary: (l10n) => l10n.catalogRemoteSummary,
