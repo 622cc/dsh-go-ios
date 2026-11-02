@@ -579,7 +579,12 @@ class ChatController extends Notifier<ChatState> {
     final buildOwner = ref;
     _states = client.mux.states.listen((connection) {
       if (!buildOwner.mounted || !identical(client, _client)) return;
-      if (connection != DshConnectionState.connected) _markSyncing();
+      _transcript.connectionState = connection;
+      if (connection != DshConnectionState.connected) {
+        _markSyncing();
+      } else {
+        _schedule();
+      }
       final stopping = _stoppingOperation;
       if (stopping != null && !_currentOperation(stopping)) _endStopping();
       if (connection == DshConnectionState.connected && _watchEnded) {
@@ -637,6 +642,7 @@ class ChatController extends Notifier<ChatState> {
     hasMoreHistory: _transcript.hasMoreHistory,
     loading: loading,
     syncing: true,
+    connection: _client?.mux.state ?? _transcript.connectionState,
     commands: _commandList(),
     model: _model,
     pending: _placePending(),
@@ -654,7 +660,14 @@ class ChatController extends Notifier<ChatState> {
     if (_syncReady.isCompleted) _syncReady = Completer<bool>();
     _stopTimeout?.cancel();
     _stoppingOperation = null;
-    if (!building) state = state.copyWith(syncing: true, stopping: false, loadingOlder: false);
+    if (!building) {
+      state = state.copyWith(
+        syncing: true,
+        stopping: false,
+        loadingOlder: false,
+        connection: _client?.mux.state ?? _transcript.connectionState,
+      );
+    }
   }
 
   /// A first prompt may arrive immediately after session/create. Wait for the
@@ -684,6 +697,8 @@ class ChatController extends Notifier<ChatState> {
   /// Deduplicated and bounded; only an applied fresh snapshot is success.
   Future<bool> resync() {
     if (_resyncFuture case final existing?) return existing;
+    final hostLink = ref.read(hostLinkProvider(ref.read(activeHostProvider)));
+    hostLink?.retry();
     final client = _client;
     if (client == null) return Future.value(false);
     final owner = ref;
@@ -1123,7 +1138,7 @@ class ChatController extends Notifier<ChatState> {
       loadingOlder: state.loadingOlder,
       error: freshSnapshot ? null : state.error,
       notice: freshSnapshot ? null : state.notice,
-      connection: _transcript.connectionState,
+      connection: _client?.mux.state ?? _transcript.connectionState,
       model: _model,
       pending: pending,
       autoApprove: _autoApprove,

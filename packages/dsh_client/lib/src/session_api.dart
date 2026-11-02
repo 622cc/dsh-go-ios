@@ -888,6 +888,7 @@ class _SessionWatch {
       _hostSub = client.mux.hostEvents.listen(_forwardHost);
     }
     if (options.includeConnectionEvents) {
+      _emit(ConnectionStateEvent(client.mux.state, error: client.mux.lastError));
       _stateSub = client.mux.states.listen((state) {
         if (state != DshConnectionState.connected) _epoch?.retire();
         _emit(ConnectionStateEvent(state, error: client.mux.lastError));
@@ -1124,22 +1125,24 @@ class _SessionWatch {
       case SessionLogEvent():
         if (event.seq <= _lastSeq) return;
         if (event.seq > _lastSeq + 1) {
-          // Revalidate the complete inbox/running baseline, not only the
-          // missing log records. The next snapshot repairs durable history.
-          if (options.includeSyncEvents) throw _Resync('resync after gap before seq ${event.seq}');
           final filled = await _fill(from: _lastSeq + 1, before: event.seq, through: event.seq - 1);
-          if (filled.isEmpty || filled.first.seq != _lastSeq + 1 || filled.last.seq != event.seq - 1) {
+          var expected = _lastSeq + 1;
+          for (final e in filled) {
+            if (e.seq != expected++) throw _Resync('incomplete gap fill before seq ${event.seq}');
+          }
+          if (expected != event.seq) {
             throw _Resync('unrepairable gap before seq ${event.seq}');
           }
-          filled.forEach(_emit);
+          for (final e in filled) {
+            _lastSeq = e.seq;
+            _emit(e);
+          }
         }
         _lastSeq = event.seq;
         _emit(event);
       case AssistantStreamEvent():
-        final expected = (_assistantRevision ?? 0) + 1;
-        if (event.revision != expected) {
-          throw _Resync('assistant stream skipped revision $expected');
-        }
+        final currentRev = _assistantRevision ?? 0;
+        if (event.revision <= currentRev) return;
         _assistantRevision = event.revision;
         _emit(event);
       case SessionSnapshotEvent():

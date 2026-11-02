@@ -164,7 +164,7 @@ class DshConnection {
     if (_ownsClient) {
       _http
         ..connectionTimeout = connectTimeout
-        ..idleTimeout = const Duration(seconds: 15)
+        ..idleTimeout = const Duration(seconds: 3)
         ..autoUncompress = true;
     }
   }

@@ -276,6 +276,7 @@ class ChatTranscript {
   bool apply(DshEvent event) {
     switch (event) {
       case SessionSnapshotEvent():
+        connectionState = DshConnectionState.connected;
         if (!event.isResync) _log.clear();
         header = event.header;
         projections = event.projections;
@@ -300,6 +301,7 @@ class ChatTranscript {
         _logChanged();
         return true;
       case SessionLogEvent():
+        connectionState = DshConnectionState.connected;
         // The follow cursor may exceed (or trail) the loaded log after snapshots.
         final previousLast = _log.lastKey();
         final appended = previousLast == null || event.seq > previousLast;
@@ -323,9 +325,11 @@ class ChatTranscript {
         _logChanged(appended: appended ? event : null);
         return true;
       case AssistantStreamStarted():
+        connectionState = DshConnectionState.connected;
         _drafts[event.attemptId] = _Draft(event.attemptId, event.turn, event.step, event.startedAfterSeq);
         return true;
       case AssistantChunkEvent():
+        connectionState = DshConnectionState.connected;
         final draft = _drafts[event.attemptId];
         if (draft == null || event.index < draft.nextIndex) return false;
         draft.apply(event.chunk);

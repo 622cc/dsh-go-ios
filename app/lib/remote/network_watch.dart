@@ -14,6 +14,15 @@ Stream<void> networkKicks() {
   AppLifecycleListener? lifecycle;
   List<ConnectivityResult>? last;
 
+  ConnectivityResult primaryOf(List<ConnectivityResult> list) {
+    if (list.contains(ConnectivityResult.vpn)) return ConnectivityResult.vpn;
+    if (list.contains(ConnectivityResult.ethernet)) return ConnectivityResult.ethernet;
+    if (list.contains(ConnectivityResult.wifi)) return ConnectivityResult.wifi;
+    if (list.contains(ConnectivityResult.mobile)) return ConnectivityResult.mobile;
+    if (list.contains(ConnectivityResult.other)) return ConnectivityResult.other;
+    return ConnectivityResult.none;
+  }
+
   controller = StreamController<void>.broadcast(
     onListen: () {
       try {
@@ -21,12 +30,12 @@ Stream<void> networkKicks() {
           final previous = last;
           last = results;
           if (previous == null) return;
-          final prevSet = previous.toSet();
-          final nextSet = results.toSet();
-          if (prevSet.length == nextSet.length && prevSet.containsAll(nextSet)) return;
-          // Coming back online, or switching networks: either way sockets that
-          // were bound to the old interface are dead.
-          if (!results.contains(ConnectivityResult.none)) controller.add(null);
+          final prevPrimary = primaryOf(previous);
+          final nextPrimary = primaryOf(results);
+          if (prevPrimary == nextPrimary) return;
+          // Coming back online, or switching primary route (Wi-Fi ↔ cellular):
+          // sockets that were bound to the old interface are dead.
+          if (nextPrimary != ConnectivityResult.none) controller.add(null);
         }, onError: (_) {});
       } catch (_) {
         // No plugin (tests, desktop without NetworkManager): resume-only.

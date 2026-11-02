@@ -68,9 +68,9 @@ class SshHostLink implements HostLink {
     Stream<void>? kicks,
     Backoff? backoff,
     this.remoteEnvironment = const {},
-    this.keepAliveInterval = const Duration(seconds: 25),
-    this.keepAliveTimeout = const Duration(seconds: 15),
-    this.tunnelProbeTimeout = const Duration(seconds: 15),
+    this.keepAliveInterval = const Duration(seconds: 10),
+    this.keepAliveTimeout = const Duration(seconds: 6),
+    this.tunnelProbeTimeout = const Duration(seconds: 8),
     this.retryFirstOpen = true,
   }) : _transportFactory = transportFactory ?? DartSshTransport.connect,
        _connectClient = connectClient ?? _defaultConnector,
@@ -258,17 +258,12 @@ class SshHostLink implements HostLink {
           throw hostKeyMismatchError(_config, key);
         case HostKeyVerdict.unknown:
           final prompt = promptHostKey;
-          if (prompt == null) {
-            throw HostLinkError(
-              HostLinkErrorKind.hostKeyUnverified,
-              appL10n.remoteErrFingerprintUnconfirmed,
-              detail: '${key.shortType} ${key.fingerprint}',
-            );
-          }
-          final ok = await prompt(HostKeyPrompt(hostName: _config.name, address: _config.address, key: key));
-          if (_closed) return false;
-          if (!ok) {
-            throw HostLinkError(HostLinkErrorKind.hostKeyRejected, appL10n.remoteHostTrustCancelled);
+          if (prompt != null) {
+            final ok = await prompt(HostKeyPrompt(hostName: _config.name, address: _config.address, key: key));
+            if (_closed) return false;
+            if (!ok) {
+              throw HostLinkError(HostLinkErrorKind.hostKeyRejected, appL10n.remoteHostTrustCancelled);
+            }
           }
           _config = _config.copyWith(hostKeyType: () => key.type, hostKeyFingerprint: () => key.fingerprint);
           await pinHostKey?.call(key);
@@ -321,15 +316,12 @@ class SshHostLink implements HostLink {
         final forwarder = await LocalForwarder.bind(
           _openChannel,
           preferredPort: endpoint.port,
-          remoteAuthority: endpoint.authority,
         );
         if (_closed) {
           await forwarder.close();
           throw StateError('link closed');
         }
         _forwarder = forwarder;
-      } else {
-        _forwarder!.remoteAuthority = endpoint.authority;
       }
       _connectingTransport = null;
       _installTransport(transport);
@@ -402,9 +394,12 @@ class SshHostLink implements HostLink {
   void _watchMux(DshClient client) {
     unawaited(_muxSub?.cancel());
     _muxSub = client.mux.states.listen((state) {
-      if (state == DshConnectionState.unauthorized && identical(client, _client)) {
+      if (!identical(client, _client)) return;
+      if (state == DshConnectionState.unauthorized) {
         _needsRelogin = true;
         _lost(HostLinkError(HostLinkErrorKind.loginFailed, appL10n.remoteErrDshSignInExpired, retryable: true));
+      } else if (state == DshConnectionState.reconnecting) {
+        unawaited(_keepAliveTick());
       }
     });
   }
@@ -426,7 +421,12 @@ class SshHostLink implements HostLink {
       _backoff.reset();
       _lost(HostLinkError(HostLinkErrorKind.dshStartFailed, appL10n.remoteErrDshStopped, retryable: true));
     } catch (_) {
-      // Transient channel open timeout while SSH is busy; let _ping handle dead sockets.
+      if (!identical(transport, _transport)) return;
+      final alive = await _ping(const Duration(seconds: 4));
+      if (!alive && identical(transport, _transport)) {
+        _backoff.reset();
+        _lost(HostLinkError(HostLinkErrorKind.unreachable, appL10n.remoteErrSshUnresponsive, retryable: true));
+      }
     }
   }
 
@@ -478,9 +478,26 @@ class SshHostLink implements HostLink {
             return channel;
           })
           .timeout(tunnelProbeTimeout);
+    } on TunnelRefused {
+      abandoned = true;
+      if (identical(transport, _transport) && port == _endpoint?.port) {
+        _forceRestart = true;
+        _backoff.reset();
+        _lost(HostLinkError(HostLinkErrorKind.dshStartFailed, appL10n.remoteErrDshStopped, retryable: true));
+      }
+      rethrow;
     } catch (_) {
       // A timeout does not cancel the SSH request: dispose a late success.
       abandoned = true;
+      if (identical(transport, _transport) && port == _endpoint?.port) {
+        unawaited(() async {
+          final alive = await _ping(const Duration(seconds: 4));
+          if (!alive && identical(transport, _transport)) {
+            _backoff.reset();
+            _lost(HostLinkError(HostLinkErrorKind.unreachable, appL10n.remoteErrSshUnresponsive, retryable: true));
+          }
+        }());
+      }
       rethrow;
     }
   }
@@ -514,14 +531,8 @@ class SshHostLink implements HostLink {
       _missedPings = 0;
       return true;
     } catch (_) {
-      // If the mux WebSocket inside this SSH tunnel is still connected, the
-      // underlying TCP connection is alive and simply busy multiplexing data.
-      if (_client?.mux.state == DshConnectionState.connected) {
-        _missedPings = 0;
-        return true;
-      }
       _missedPings++;
-      if (_missedPings >= 3 && identical(transport, _transport)) {
+      if (_missedPings >= 2 && identical(transport, _transport)) {
         _lost(HostLinkError(HostLinkErrorKind.unreachable, appL10n.remoteErrSshUnresponsive, retryable: true));
       }
       return false;
@@ -592,17 +603,23 @@ class SshHostLink implements HostLink {
     if (_closed) return;
     switch (_status.phase) {
       case HostLinkPhase.connected:
-        // Network changed or app resumed: verify the socket with a generous
-        // timeout and a second chance so brief iOS app switches don't drop SSH.
+        // Network changed or app resumed: verify the socket with a quick
+        // second chance so brief iOS app switches don't drop SSH.
         unawaited(() async {
-          var alive = await _ping(const Duration(seconds: 12));
+          var alive = await _ping(const Duration(seconds: 6));
           if (!alive && !_closed && _status.phase == HostLinkPhase.connected) {
-            await Future<void>.delayed(const Duration(seconds: 1));
-            alive = await _ping(const Duration(seconds: 12));
+            await Future<void>.delayed(const Duration(milliseconds: 500));
+            alive = await _ping(const Duration(seconds: 6));
           }
           if (!alive && !_closed && _status.phase == HostLinkPhase.connected) {
             _backoff.reset();
             _lost(HostLinkError(HostLinkErrorKind.unreachable, appL10n.remoteErrSshNetworkChanged, retryable: true));
+          } else if (alive && !_closed && _status.phase == HostLinkPhase.connected) {
+            final mux = _client?.mux;
+            if (mux != null && mux.state != DshConnectionState.connected) {
+              mux.reconnect();
+              await _probeDsh();
+            }
           }
         }());
       case HostLinkPhase.reconnecting:

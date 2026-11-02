@@ -145,8 +145,11 @@ class _Pair {
   }
 
   void start() {
+    final authority = remoteAuthority;
     _up = socket.listen(
-      (chunk) => channel.sink.add(_rewriteHostIfNeeded(chunk)),
+      authority == null || authority.isEmpty
+          ? channel.sink.add
+          : (chunk) => channel.sink.add(_rewriteHostIfNeeded(chunk)),
       onDone: () {
         unawaited(channel.sink.close().catchError((_) {}));
       },

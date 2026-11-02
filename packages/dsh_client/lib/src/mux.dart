@@ -55,8 +55,8 @@ class MuxGeneration {
 
 class MuxOptions {
   const MuxOptions({
-    this.readyTimeout = const Duration(seconds: 15),
-    this.pingInterval = const Duration(seconds: 15),
+    this.readyTimeout = const Duration(seconds: 30),
+    this.pingInterval = const Duration(seconds: 60),
     this.retryCaps = const [
       Duration(milliseconds: 500),
       Duration(seconds: 1),
